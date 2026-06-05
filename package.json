@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "validate:m1": "node scripts/validate-m1.mjs",
     "validate:m2": "node scripts/validate-m2.mjs",
-    "test:m2": "node scripts/validate-m2.mjs"
+    "test:m2": "node scripts/validate-m2.mjs",
+    "validate:m3": "node scripts/validate-m3.mjs"
   },
   "dependencies": {
     "ajv": "^8.20.0",
