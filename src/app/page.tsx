@@ -3,6 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { normalizeRawNovelInput } from "@/lib/input";
 import type { GenerationRequest, InputNormalizationResult, ScriptForgeDocument } from "@/types/scriptforge";
+import {
+  documentToYaml,
+  documentToJson,
+  documentToMarkdown,
+  generateYamlFilename,
+  generateJsonFilename,
+  generateMarkdownFilename,
+} from "@/lib/yaml";
+import type { ValidationResult } from "@/lib/schema";
 
 type WorkspaceIndexEntry = {
   id: string;
@@ -77,6 +86,10 @@ export default function Home() {
   const [sampleMeta, setSampleMeta] = useState<Pick<SampleResponse, "title" | "author" | "source" | "license_note"> | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [message, setMessage] = useState("准备输入");
+  // ── M3 YAML export state ──
+  const [yamlText, setYamlText] = useState("");
+  const [yamlValidation, setYamlValidation] = useState<ValidationResult | null>(null);
+  const [yamlValidating, setYamlValidating] = useState(false);
 
   const normalization = useMemo(() => normalizeRawNovelInput(rawInput), [rawInput]);
   const hasResult = activeWorkspace?.result !== null && activeWorkspace?.result !== undefined;
@@ -192,6 +205,135 @@ export default function Home() {
     await refreshWorkspaces();
     setMessage(`结果已保存到 data/workspaces/${workspace.id}/result.json`);
   }
+
+  // ── M3 YAML export functions ────────────────────────────────────────────
+
+  function parseResultText(): ScriptForgeDocument | null {
+    if (!resultText.trim()) return null;
+    try {
+      const parsed = JSON.parse(resultText) as unknown;
+      if (parsed && typeof parsed === "object") {
+        const doc = parsed as Record<string, unknown>;
+        // Accept both {script:{...}} and top-level script
+        if (doc.script && typeof doc.script === "object") {
+          return doc as unknown as ScriptForgeDocument;
+        }
+        if (doc.schema_version === "1.0") {
+          return { script: doc as unknown as ScriptForgeDocument["script"] };
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  function handleConvertToYaml() {
+    const doc = parseResultText();
+    if (!doc) {
+      setMessage("结果 JSON 不是有效的 ScriptForgeDocument，无法导出");
+      return;
+    }
+    const yaml = documentToYaml(doc);
+    setYamlText(yaml);
+    setYamlValidation(null);
+    setMessage("已生成 YAML，可编辑后重新校验或直接导出");
+  }
+
+  async function handleYamlRevalidate() {
+    if (!yamlText.trim()) {
+      setMessage("YAML 内容为空，无法校验");
+      return;
+    }
+    setYamlValidating(true);
+    setMessage("正在校验 YAML...");
+    try {
+      const response = await fetch("/api/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ yamlText }),
+      });
+      const result = (await response.json()) as ValidationResult;
+      setYamlValidation(result);
+      if (result.valid) {
+        setMessage("YAML 校验通过，可以导出");
+      } else if (result.status === "warn") {
+        setMessage(`YAML 校验通过但存在 ${result.warnings.length} 条警告`);
+      } else {
+        setMessage(`YAML 校验失败：${result.errors.length} 条错误`);
+      }
+    } catch {
+      setMessage("YAML 校验请求失败");
+      setYamlValidation(null);
+    } finally {
+      setYamlValidating(false);
+    }
+  }
+
+  function handleDownload(format: "yaml" | "json" | "markdown") {
+    const doc = parseResultText();
+    if (!doc) {
+      setMessage("无法导出：结果 JSON 不是有效的 ScriptForgeDocument");
+      return;
+    }
+
+    // Block export if YAML has been edited and validation failed
+    if (format === "yaml" && yamlValidation && !yamlValidation.valid) {
+      setMessage("导出已阻止：YAML 校验未通过，请先修复错误");
+      return;
+    }
+
+    let content: string;
+    let filename: string;
+    let mimeType: string;
+
+    switch (format) {
+      case "yaml":
+        content = yamlText || documentToYaml(doc);
+        filename = generateYamlFilename(doc.script.title);
+        mimeType = "application/x-yaml";
+        break;
+      case "json":
+        content = documentToJson(doc);
+        filename = generateJsonFilename(doc.script.title);
+        mimeType = "application/json";
+        break;
+      case "markdown":
+        content = documentToMarkdown(doc);
+        filename = generateMarkdownFilename(doc.script.title);
+        mimeType = "text/markdown";
+        break;
+    }
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setMessage(`${format.toUpperCase()} 已下载：${filename}`);
+  }
+
+  async function handleCopyYaml() {
+    const doc = parseResultText();
+    if (!doc) {
+      setMessage("无法复制：结果 JSON 不是有效的 ScriptForgeDocument");
+      return;
+    }
+    const yaml = yamlText || documentToYaml(doc);
+    try {
+      await navigator.clipboard.writeText(yaml);
+      setMessage("YAML 已复制到剪贴板");
+    } catch {
+      setMessage("复制失败，请手动选择文本复制");
+    }
+  }
+
+  const canExport = parseResultText() !== null;
+  const yamlExportBlocked = yamlValidation !== null && !yamlValidation.valid;
 
   return (
     <main className="min-h-screen bg-zinc-100 text-zinc-950">
@@ -357,6 +499,111 @@ export default function Home() {
                 value={resultText}
               />
               <div className="border-t border-zinc-200 px-4 py-3 text-sm text-zinc-600">{hasResult ? "结果已加载，可编辑后重新保存" : "结果为空，等待后续生成模块写入"}</div>
+            </div>
+
+            {/* ── M3 YAML 导出 ── */}
+            <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
+                <div>
+                  <h2 className="text-lg font-semibold">M3 · YAML 导出</h2>
+                  <p className="text-sm text-zinc-600">将结果转换为稳定字段顺序 YAML，支持编辑、重校验与下载</p>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    className="rounded-md border border-cyan-700 px-3 py-2 text-sm font-medium text-cyan-800 hover:bg-cyan-50 disabled:opacity-50"
+                    disabled={!canExport}
+                    onClick={handleConvertToYaml}
+                    type="button"
+                  >
+                    生成 YAML
+                  </button>
+                  <button
+                    className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+                    disabled={!canExport}
+                    onClick={handleCopyYaml}
+                    type="button"
+                  >
+                    复制 YAML
+                  </button>
+                  <button
+                    className="rounded-md border border-emerald-600 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                    disabled={!canExport || yamlExportBlocked}
+                    onClick={() => handleDownload("yaml")}
+                    type="button"
+                  >
+                    下载 YAML
+                  </button>
+                  <button
+                    className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+                    disabled={!canExport}
+                    onClick={() => handleDownload("json")}
+                    type="button"
+                  >
+                    下载 JSON
+                  </button>
+                  <button
+                    className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+                    disabled={!canExport}
+                    onClick={() => handleDownload("markdown")}
+                    type="button"
+                  >
+                    下载 MD
+                  </button>
+                </div>
+              </div>
+              <textarea
+                className="min-h-[200px] w-full resize-y bg-white p-4 font-mono text-sm leading-6 outline-none"
+                onChange={(event) => { setYamlText(event.target.value); setYamlValidation(null); }}
+                placeholder="点击「生成 YAML」将结果 JSON 转为稳定字段顺序的 YAML。生成后可编辑并重新校验。"
+                spellCheck={false}
+                value={yamlText}
+              />
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <button
+                    className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-800 disabled:bg-zinc-300"
+                    disabled={!yamlText.trim() || yamlValidating}
+                    onClick={() => void handleYamlRevalidate()}
+                    type="button"
+                  >
+                    {yamlValidating ? "校验中..." : "重新校验 YAML"}
+                  </button>
+                  {yamlValidation && (
+                    <span className={`text-sm font-medium ${yamlValidation.valid ? (yamlValidation.status === "warn" ? "text-amber-700" : "text-emerald-700") : "text-red-700"}`}>
+                      {yamlValidation.status === "pass" && "✅ 校验通过"}
+                      {yamlValidation.status === "warn" && `⚠️ 通过 (${yamlValidation.warnings.length} 条警告)`}
+                      {yamlValidation.status === "error" && `❌ 失败 (${yamlValidation.errors.length} 条错误)`}
+                    </span>
+                  )}
+                  {yamlExportBlocked && (
+                    <span className="text-sm font-medium text-red-700">导出已阻止：请先修复校验错误</span>
+                  )}
+                </div>
+                <span className="text-sm text-zinc-600">
+                  {yamlText ? `${yamlText.length} 字符` : "未生成 YAML"}
+                </span>
+              </div>
+              {/* YAML validation errors */}
+              {yamlValidation && yamlValidation.errors.length > 0 && (
+                <div className="border-t border-red-200 bg-red-50 px-4 py-3">
+                  <p className="text-sm font-medium text-red-800">校验错误：</p>
+                  <ul className="mt-1 list-inside list-disc text-sm text-red-700">
+                    {yamlValidation.errors.map((err, i) => (
+                      <li key={i}><code className="text-xs">{err.path}</code> — {err.message}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {yamlValidation && yamlValidation.warnings.length > 0 && (
+                <div className="border-t border-amber-200 bg-amber-50 px-4 py-3">
+                  <p className="text-sm font-medium text-amber-800">警告：</p>
+                  <ul className="mt-1 list-inside list-disc text-sm text-amber-700">
+                    {yamlValidation.warnings.map((w, i) => (
+                      <li key={i}><code className="text-xs">{w.path}</code> — {w.message}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           </section>
 
