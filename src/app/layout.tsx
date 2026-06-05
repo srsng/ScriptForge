@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "ScriptForge Workbench",
-  description: "AI-assisted novel-to-script adaptation workbench shell.",
+  description: "AI-assisted novel-to-script adaptation workbench with M1 input persistence.",
 };
 
 export default function RootLayout({
