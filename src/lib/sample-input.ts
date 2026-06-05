@@ -61,7 +61,7 @@ export async function loadPublicDomainNovelSample(): Promise<PublicDomainNovelSa
         format: "short_drama",
         genre: "奇幻冒险",
         target_duration_minutes: 12,
-        tone: "古典神话、轻快冒险",
+        tone: "史诗奇想、明快冒险",
       },
     },
   };

@@ -35,6 +35,17 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 
 const EMPTY_RESULT_TEXT = "";
 
+const workflowStages = [
+  "章节输入",
+  "改编偏好",
+  "工作区持久化",
+  "外部结果导入",
+  "Schema 校验保存",
+  "预览 / 导出接入",
+] as const;
+
+const contractFields = ["chapters", "target.format", "target.genre", "target.tone", "target_duration_minutes"] as const;
+
 function jsonPreview(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
@@ -44,6 +55,14 @@ function formatDate(value: string): string {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function FieldPill({ children }: { children: string }) {
+  return (
+    <div className="min-h-10 break-words rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-sm text-zinc-600">
+      {children}
+    </div>
+  );
 }
 
 export default function Home() {
@@ -175,155 +194,206 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f6f6f3] text-[#1f2523]">
-      <header className="border-b border-[#d7d4cb] bg-[#fbfaf7]">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-end justify-between gap-4 px-6 py-5">
-          <div>
-            <p className="text-sm font-medium text-[#6b5d3d]">ScriptForge</p>
-            <h1 className="text-2xl font-semibold tracking-normal">小说输入工作台</h1>
+    <main className="min-h-screen bg-zinc-100 text-zinc-950">
+      <section className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-5 py-5">
+        <header className="rounded-lg border border-zinc-200 bg-white px-5 py-4 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-medium text-cyan-700">ScriptForge M1</p>
+              <h1 className="mt-1 text-3xl font-semibold text-zinc-950">小说输入工作台</h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
+                载入公开来源章节，标准化 NovelChapter[] 与 GenerationRequest，并把输入工作区持久化到 data/workspaces。结果区只接收外部
+                ScriptForgeDocument JSON，不再内置生成成片。
+              </p>
+            </div>
+            <div className="grid gap-2 text-sm sm:grid-cols-3 lg:w-[34rem]">
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                <p className="font-medium text-zinc-950">Input</p>
+                <p className="mt-1 text-zinc-600">公开文本 / 手动粘贴</p>
+              </div>
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                <p className="font-medium text-zinc-950">Storage</p>
+                <p className="mt-1 text-zinc-600">data/workspaces</p>
+              </div>
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                <p className="font-medium text-zinc-950">Status</p>
+                <p className="mt-1 text-emerald-700">{message}</p>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2 text-sm text-[#59635f]">
-            <span>{message}</span>
-            <button className="border border-[#9da7a0] px-3 py-2 font-medium hover:bg-[#eef0eb]" onClick={() => void refreshWorkspaces()} type="button">
-              刷新
-            </button>
-          </div>
-        </div>
-      </header>
+        </header>
 
-      <div className="mx-auto grid max-w-7xl gap-5 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <section className="space-y-4">
-          <div className="grid gap-3 border border-[#d7d4cb] bg-white p-4 md:grid-cols-[minmax(0,1fr)_180px_180px]">
-            <label className="grid gap-1 text-sm font-medium">
-              工作区标题
-              <input className="border border-[#b9b7ad] px-3 py-2 font-normal outline-none focus:border-[#2c6757]" value={title} onChange={(event) => setTitle(event.target.value)} />
-            </label>
-            <label className="grid gap-1 text-sm font-medium">
-              类型
-              <input className="border border-[#b9b7ad] px-3 py-2 font-normal outline-none focus:border-[#2c6757]" value={genre} onChange={(event) => setGenre(event.target.value)} />
-            </label>
-            <label className="grid gap-1 text-sm font-medium">
-              时长（分钟）
-              <input className="border border-[#b9b7ad] px-3 py-2 font-normal outline-none focus:border-[#2c6757]" min={1} type="number" value={duration} onChange={(event) => setDuration(Number(event.target.value))} />
-            </label>
-            <label className="grid gap-1 text-sm font-medium md:col-span-3">
-              语气
-              <input className="border border-[#b9b7ad] px-3 py-2 font-normal outline-none focus:border-[#2c6757]" value={tone} onChange={(event) => setTone(event.target.value)} />
-            </label>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <div className="border border-[#d7d4cb] bg-white">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d7d4cb] px-4 py-3">
-                <h2 className="text-base font-semibold">章节输入</h2>
-                <div className="flex gap-2">
-                  <button className="border border-[#9da7a0] px-3 py-2 text-sm font-medium hover:bg-[#eef0eb]" onClick={() => void loadPublicDomainSample()} type="button">
-                    载入公开样本
-                  </button>
-                  <button className="bg-[#255f50] px-3 py-2 text-sm font-medium text-white hover:bg-[#1f5144] disabled:bg-[#9da7a0]" disabled={!normalization.isValid || saveState === "saving"} onClick={() => void saveWorkspace()} type="button">
-                    保存工作区
-                  </button>
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <section className="space-y-5">
+            <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">改编请求</h2>
+                  <p className="text-sm text-zinc-600">配置目标格式、类型、语气与时长；章节正文可来自接口样本或人工输入。</p>
                 </div>
+                <button className="rounded-md border border-cyan-700 px-3 py-2 text-sm font-medium text-cyan-800 hover:bg-cyan-50" onClick={() => void refreshWorkspaces()} type="button">
+                  刷新工作区
+                </button>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px]">
+                <label className="grid gap-1 text-sm font-medium">
+                  标题
+                  <input className="rounded-md border border-zinc-300 px-3 py-2 font-normal outline-none focus:border-cyan-700" value={title} onChange={(event) => setTitle(event.target.value)} />
+                </label>
+                <label className="grid gap-1 text-sm font-medium">
+                  类型
+                  <input className="rounded-md border border-zinc-300 px-3 py-2 font-normal outline-none focus:border-cyan-700" value={genre} onChange={(event) => setGenre(event.target.value)} />
+                </label>
+                <label className="grid gap-1 text-sm font-medium">
+                  时长（分钟）
+                  <input className="rounded-md border border-zinc-300 px-3 py-2 font-normal outline-none focus:border-cyan-700" min={1} type="number" value={duration} onChange={(event) => setDuration(Number(event.target.value))} />
+                </label>
+                <label className="grid gap-1 text-sm font-medium md:col-span-3">
+                  语气
+                  <input className="rounded-md border border-zinc-300 px-3 py-2 font-normal outline-none focus:border-cyan-700" value={tone} onChange={(event) => setTone(event.target.value)} />
+                </label>
+              </div>
+            </div>
+
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
+              <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
+                  <div>
+                    <h2 className="text-lg font-semibold">章节输入</h2>
+                    <p className="text-sm text-zinc-600">至少 3 章；支持 第一章、第一回、Chapter 1、1. 标题。</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-50" onClick={() => void loadPublicDomainSample()} type="button">
+                      载入公开样本
+                    </button>
+                    <button className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-800 disabled:bg-zinc-300" disabled={!normalization.isValid || saveState === "saving"} onClick={() => void saveWorkspace()} type="button">
+                      保存工作区
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  className="min-h-[560px] w-full resize-y bg-white p-4 font-mono text-sm leading-6 outline-none"
+                  onChange={(event) => setRawInput(event.target.value)}
+                  placeholder="粘贴至少 3 个章节。章节标题可用：第一章、第一回、Chapter 1、1. 标题。"
+                  spellCheck={false}
+                  value={rawInput}
+                />
+              </div>
+
+              <aside className="space-y-4">
+                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+                  <h2 className="text-lg font-semibold">输入状态</h2>
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-md border border-zinc-200 p-3">
+                      <div className="text-2xl font-semibold">{normalization.chapters.length}</div>
+                      <div className="text-zinc-600">章节</div>
+                    </div>
+                    <div className="rounded-md border border-zinc-200 p-3">
+                      <div className="text-2xl font-semibold">{normalization.isValid ? "OK" : "NO"}</div>
+                      <div className="text-zinc-600">可保存</div>
+                    </div>
+                  </div>
+                  <div className="mt-4 space-y-2 text-sm">
+                    {normalization.issues.length === 0 ? <p className="text-emerald-700">未发现输入问题</p> : null}
+                    {normalization.issues.map((issue) => (
+                      <p className={issue.severity === "error" ? "text-red-700" : "text-amber-700"} key={`${issue.path}-${issue.code}`}>
+                        {issue.message}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+                  <h2 className="text-lg font-semibold">GenerationRequest 契约</h2>
+                  <div className="mt-3 grid gap-2">
+                    {contractFields.map((field) => (
+                      <FieldPill key={field}>{field}</FieldPill>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+                  <h2 className="text-lg font-semibold">章节列表</h2>
+                  <div className="mt-3 max-h-[260px] space-y-2 overflow-auto text-sm">
+                    {normalization.chapters.map((chapter) => (
+                      <div className="rounded-md border border-zinc-200 p-2" key={chapter.id}>
+                        <div className="font-medium">{chapter.title}</div>
+                        <div className="text-zinc-600">{chapter.content.length} 字符</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {sampleMeta ? (
+                  <div className="rounded-lg border border-zinc-200 bg-white p-4 text-sm shadow-sm">
+                    <h2 className="text-lg font-semibold">样本来源</h2>
+                    <p className="mt-2">{sampleMeta.title}</p>
+                    <p className="text-zinc-600">{sampleMeta.author}</p>
+                    <p className="mt-2 text-zinc-600">{sampleMeta.license_note}</p>
+                    <a className="mt-2 block break-all text-cyan-700 underline" href={sampleMeta.source} rel="noreferrer" target="_blank">
+                      {sampleMeta.source}
+                    </a>
+                  </div>
+                ) : null}
+              </aside>
+            </div>
+
+            <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
+                <div>
+                  <h2 className="text-lg font-semibold">结果 JSON</h2>
+                  <p className="text-sm text-zinc-600">{activeWorkspace ? `当前工作区 ${activeWorkspace.id}` : "未选择工作区"}</p>
+                </div>
+                <button className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-800 disabled:bg-zinc-300" disabled={!activeWorkspace || resultText.trim().length === 0} onClick={() => void saveResult()} type="button">
+                  保存结果
+                </button>
               </div>
               <textarea
-                className="min-h-[560px] w-full resize-y bg-white p-4 font-mono text-sm leading-6 outline-none"
-                onChange={(event) => setRawInput(event.target.value)}
-                placeholder="粘贴至少 3 个章节。章节标题可用：第一章、第一回、Chapter 1、1. 标题。"
+                className="min-h-[260px] w-full resize-y bg-white p-4 font-mono text-sm leading-6 outline-none"
+                onChange={(event) => setResultText(event.target.value)}
+                placeholder="粘贴 ScriptForgeDocument JSON。保存后写入 data/workspaces/<id>/result.json。"
                 spellCheck={false}
-                value={rawInput}
+                value={resultText}
               />
+              <div className="border-t border-zinc-200 px-4 py-3 text-sm text-zinc-600">{hasResult ? "结果已加载，可编辑后重新保存" : "结果为空，等待后续生成模块写入"}</div>
             </div>
+          </section>
 
-            <aside className="space-y-4">
-              <div className="border border-[#d7d4cb] bg-white p-4">
-                <h2 className="text-base font-semibold">输入状态</h2>
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  <div className="border border-[#d7d4cb] p-3">
-                    <div className="text-2xl font-semibold">{normalization.chapters.length}</div>
-                    <div className="text-[#59635f]">章节</div>
+          <aside className="space-y-5">
+            <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+              <h2 className="text-lg font-semibold">M1 工作流</h2>
+              <div className="mt-4 space-y-2">
+                {workflowStages.map((stage, index) => (
+                  <div className="flex items-center gap-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm" key={stage}>
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-cyan-700 text-xs font-semibold text-white">{index + 1}</span>
+                    <span>{stage}</span>
                   </div>
-                  <div className="border border-[#d7d4cb] p-3">
-                    <div className="text-2xl font-semibold">{normalization.isValid ? "OK" : "NO"}</div>
-                    <div className="text-[#59635f]">可保存</div>
-                  </div>
-                </div>
-                <div className="mt-4 space-y-2 text-sm">
-                  {normalization.issues.length === 0 ? <p className="text-[#2c6757]">未发现输入问题</p> : null}
-                  {normalization.issues.map((issue) => (
-                    <p className={issue.severity === "error" ? "text-[#9b3328]" : "text-[#8a6418]"} key={`${issue.path}-${issue.code}`}>
-                      {issue.message}
-                    </p>
-                  ))}
-                </div>
+                ))}
               </div>
-
-              <div className="border border-[#d7d4cb] bg-white p-4">
-                <h2 className="text-base font-semibold">章节列表</h2>
-                <div className="mt-3 max-h-[260px] space-y-2 overflow-auto text-sm">
-                  {normalization.chapters.map((chapter) => (
-                    <div className="border border-[#e1ded6] p-2" key={chapter.id}>
-                      <div className="font-medium">{chapter.title}</div>
-                      <div className="text-[#59635f]">{chapter.content.length} 字符</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {sampleMeta ? (
-                <div className="border border-[#d7d4cb] bg-white p-4 text-sm">
-                  <h2 className="text-base font-semibold">样本来源</h2>
-                  <p className="mt-2">{sampleMeta.title}</p>
-                  <p className="text-[#59635f]">{sampleMeta.author}</p>
-                  <a className="break-all text-[#255f50] underline" href={sampleMeta.source} rel="noreferrer" target="_blank">
-                    {sampleMeta.source}
-                  </a>
-                </div>
-              ) : null}
-            </aside>
-          </div>
-
-          <div className="border border-[#d7d4cb] bg-white">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d7d4cb] px-4 py-3">
-              <div>
-                <h2 className="text-base font-semibold">结果 JSON</h2>
-                <p className="text-sm text-[#59635f]">{activeWorkspace ? `当前工作区 ${activeWorkspace.id}` : "未选择工作区"}</p>
-              </div>
-              <button className="bg-[#255f50] px-3 py-2 text-sm font-medium text-white hover:bg-[#1f5144] disabled:bg-[#9da7a0]" disabled={!activeWorkspace || resultText.trim().length === 0} onClick={() => void saveResult()} type="button">
-                保存结果
-              </button>
             </div>
-            <textarea
-              className="min-h-[260px] w-full resize-y bg-white p-4 font-mono text-sm leading-6 outline-none"
-              onChange={(event) => setResultText(event.target.value)}
-              placeholder="粘贴 ScriptForgeDocument JSON。保存后写入 data/workspaces/<id>/result.json。"
-              spellCheck={false}
-              value={resultText}
-            />
-            <div className="border-t border-[#d7d4cb] px-4 py-3 text-sm text-[#59635f]">{hasResult ? "结果已加载，可编辑后重新保存" : "结果为空，等待后续生成模块写入"}</div>
-          </div>
-        </section>
 
-        <aside className="space-y-4">
-          <div className="border border-[#d7d4cb] bg-white p-4">
-            <h2 className="text-base font-semibold">已保存工作区</h2>
-            <div className="mt-3 max-h-[720px] space-y-2 overflow-auto">
-              {workspaces.length === 0 ? <p className="text-sm text-[#59635f]">暂无保存记录</p> : null}
-              {workspaces.map((workspace) => (
-                <button
-                  className="w-full border border-[#d7d4cb] p-3 text-left hover:border-[#255f50] hover:bg-[#f3f7f4]"
-                  key={workspace.id}
-                  onClick={() => void loadWorkspace(workspace.id)}
-                  type="button"
-                >
-                  <div className="font-medium">{workspace.title}</div>
-                  <div className="mt-1 text-sm text-[#59635f]">{workspace.chapter_count} 章 · {formatDate(workspace.updated_at)}</div>
-                  <div className="mt-1 text-xs text-[#59635f]">{workspace.result_path ? "已有结果" : "仅输入"}</div>
-                </button>
-              ))}
+            <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+              <h2 className="text-lg font-semibold">已保存工作区</h2>
+              <div className="mt-3 max-h-[760px] space-y-2 overflow-auto">
+                {workspaces.length === 0 ? <p className="text-sm text-zinc-600">暂无保存记录</p> : null}
+                {workspaces.map((workspace) => (
+                  <button
+                    className="w-full rounded-md border border-zinc-200 p-3 text-left hover:border-cyan-700 hover:bg-cyan-50"
+                    key={workspace.id}
+                    onClick={() => void loadWorkspace(workspace.id)}
+                    type="button"
+                  >
+                    <div className="font-medium">{workspace.title}</div>
+                    <div className="mt-1 text-sm text-zinc-600">{workspace.chapter_count} 章 · {formatDate(workspace.updated_at)}</div>
+                    <div className="mt-1 text-xs text-zinc-500">{workspace.result_path ? "已有结果" : "仅输入"}</div>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        </aside>
-      </div>
+          </aside>
+        </div>
+      </section>
     </main>
   );
 }
