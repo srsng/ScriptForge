@@ -42,6 +42,23 @@ type SampleResponse = {
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
+type GenerateState = "idle" | "loading" | "done" | "error";
+
+type GenerateDiagnostic = {
+  stage: string;
+  message: string;
+  severity?: "info" | "warning" | "error";
+};
+
+type GenerateResponse = {
+  document?: ScriptForgeDocument;
+  scriptYaml?: string;
+  diagnostics?: GenerateDiagnostic[];
+  usedFallback?: boolean;
+  workspaceId?: string;
+  error?: string;
+};
+
 const EMPTY_RESULT_TEXT = "";
 
 const workflowStages = [
@@ -86,6 +103,9 @@ export default function Home() {
   const [sampleMeta, setSampleMeta] = useState<Pick<SampleResponse, "title" | "author" | "source" | "license_note"> | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [message, setMessage] = useState("准备输入");
+  const [generateState, setGenerateState] = useState<GenerateState>("idle");
+  const [generationDiagnostics, setGenerationDiagnostics] = useState<GenerateDiagnostic[]>([]);
+  const [generationError, setGenerationError] = useState("");
   // ── M3 YAML export state ──
   const [yamlText, setYamlText] = useState("");
   const [yamlValidation, setYamlValidation] = useState<ValidationResult | null>(null);
@@ -204,6 +224,59 @@ export default function Home() {
     setResultText(workspace.result ? jsonPreview(workspace.result) : EMPTY_RESULT_TEXT);
     await refreshWorkspaces();
     setMessage(`结果已保存到 data/workspaces/${workspace.id}/result.json`);
+  }
+
+  async function generateDraft() {
+    setGenerateState("loading");
+    setGenerationError("");
+    setGenerationDiagnostics([]);
+    setMessage("正在生成剧本初稿");
+
+    const payload = activeWorkspace
+      ? { workspaceId: activeWorkspace.id, persist: true }
+      : {
+          sourceText: rawInput,
+          target: {
+            format: "short_drama",
+            genre,
+            tone,
+            target_duration_minutes: duration,
+            logline: "自动从输入章节提炼核心冲突。",
+          },
+        };
+
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await response.json()) as GenerateResponse;
+      if (!response.ok || !data.document) {
+        throw new Error(data.error ?? "AI 生成失败");
+      }
+
+      setResultText(jsonPreview(data.document));
+      setYamlText(data.scriptYaml ?? documentToYaml(data.document));
+      setYamlValidation(null);
+      setGenerationDiagnostics(data.diagnostics ?? []);
+      setGenerateState("done");
+      if (activeWorkspace) {
+        setActiveWorkspace({
+          ...activeWorkspace,
+          result: data.document,
+          result_path: activeWorkspace.result_path ?? `${activeWorkspace.id}/result.json`,
+          updated_at: new Date().toISOString(),
+        });
+        await refreshWorkspaces();
+      }
+      setMessage(data.usedFallback ? "已生成可校验降级剧本初稿" : "已生成剧本初稿");
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setGenerationError(errorMessage);
+      setGenerateState("error");
+      setMessage(errorMessage);
+    }
   }
 
   // ── M3 YAML export functions ────────────────────────────────────────────
@@ -485,20 +558,44 @@ export default function Home() {
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
                 <div>
                   <h2 className="text-lg font-semibold">结果 JSON</h2>
-                  <p className="text-sm text-zinc-600">{activeWorkspace ? `当前工作区 ${activeWorkspace.id}` : "未选择工作区"}</p>
+                  <p className="text-sm text-zinc-600">{activeWorkspace ? `当前工作区 ${activeWorkspace.id}` : "未选择工作区，可直接从输入章节生成"}</p>
                 </div>
-                <button className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-800 disabled:bg-zinc-300" disabled={!activeWorkspace || resultText.trim().length === 0} onClick={() => void saveResult()} type="button">
-                  保存结果
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    className="rounded-md bg-indigo-700 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-800 disabled:bg-zinc-300"
+                    disabled={generateState === "loading" || (!activeWorkspace && !normalization.isValid)}
+                    onClick={() => void generateDraft()}
+                    type="button"
+                  >
+                    {generateState === "loading" ? "生成中…" : "AI生成剧本初稿"}
+                  </button>
+                  <button className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-800 disabled:bg-zinc-300" disabled={!activeWorkspace || resultText.trim().length === 0} onClick={() => void saveResult()} type="button">
+                    保存结果
+                  </button>
+                </div>
               </div>
               <textarea
                 className="min-h-[260px] w-full resize-y bg-white p-4 font-mono text-sm leading-6 outline-none"
                 onChange={(event) => setResultText(event.target.value)}
-                placeholder="粘贴 ScriptForgeDocument JSON。保存后写入 data/workspaces/<id>/result.json。"
+                placeholder="粘贴 ScriptForgeDocument JSON，或点击 AI生成剧本初稿。保存后写入 data/workspaces/<id>/result.json。"
                 spellCheck={false}
                 value={resultText}
               />
-              <div className="border-t border-zinc-200 px-4 py-3 text-sm text-zinc-600">{hasResult ? "结果已加载，可编辑后重新保存" : "结果为空，等待后续生成模块写入"}</div>
+              {(generationError || generationDiagnostics.length > 0) && (
+                <div className="space-y-2 border-t border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                  {generationError && <p className="font-medium text-red-700">{generationError}</p>}
+                  {generationDiagnostics.length > 0 && (
+                    <ul className="space-y-1 text-zinc-700">
+                      {generationDiagnostics.map((item, index) => (
+                        <li key={`${item.stage}-${index}`}>
+                          <span className="font-medium">[{item.severity ?? "info"}] {item.stage}</span>：{item.message}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+              <div className="border-t border-zinc-200 px-4 py-3 text-sm text-zinc-600">{hasResult ? "结果已加载，可编辑后重新保存" : "结果为空，可通过 M4 AI 生成接口写入"}</div>
             </div>
 
             {/* ── M3 YAML 导出 ── */}
