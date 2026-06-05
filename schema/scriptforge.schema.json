@@ -1,0 +1,390 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scriptforge.local/schema/scriptforge.schema.json",
+  "title": "ScriptForge 剧本 YAML Schema",
+  "description": "用于校验 ScriptForge 小说转剧本输出的数据结构。实际导出为 YAML，校验时使用同构 JSON 对象。",
+  "type": "object",
+  "required": ["script"],
+  "additionalProperties": false,
+  "properties": {
+    "script": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "title",
+        "metadata",
+        "source",
+        "characters",
+        "locations",
+        "scenes",
+        "adaptation_report"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "1.0",
+          "description": "Schema 版本号，便于未来升级。"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "剧本标题。"
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "characters": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/character"
+          },
+          "description": "剧本人物表。"
+        },
+        "locations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/location"
+          },
+          "description": "剧本地点表。"
+        },
+        "scenes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/scene"
+          },
+          "description": "剧本场景列表。"
+        },
+        "adaptation_report": {
+          "$ref": "#/$defs/adaptation_report"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]+_[0-9]{3}$",
+      "description": "稳定 ID，例如 ch_001、char_001、loc_001、scene_001。"
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["language", "format", "genre", "target_duration_minutes", "logline", "tone"],
+      "additionalProperties": false,
+      "properties": {
+        "language": {
+          "type": "string",
+          "enum": ["zh-CN"],
+          "description": "输出语言。"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["short_drama", "film", "stage"],
+          "description": "剧本类型：短剧、电影剧本或舞台剧。"
+        },
+        "genre": {
+          "type": "string",
+          "minLength": 1,
+          "description": "类型，例如悬疑、都市、奇幻。"
+        },
+        "target_duration_minutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 180,
+          "description": "目标时长，单位分钟。"
+        },
+        "logline": {
+          "type": "string",
+          "minLength": 1,
+          "description": "一句话故事梗概。"
+        },
+        "tone": {
+          "type": "string",
+          "minLength": 1,
+          "description": "整体气质和表达风格。"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["type", "chapters"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "novel",
+          "description": "来源类型。"
+        },
+        "chapters": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/source_chapter"
+          },
+          "description": "来源小说章节，题目要求至少 3 章。"
+        }
+      }
+    },
+    "source_chapter": {
+      "type": "object",
+      "required": ["id", "title", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "character": {
+      "type": "object",
+      "required": ["id", "name", "role", "description", "motivation", "arc", "voice"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "enum": ["protagonist", "antagonist", "supporting", "minor", "narrator", "unknown"],
+          "description": "人物功能。"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "motivation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arc": {
+          "type": "string",
+          "minLength": 1
+        },
+        "voice": {
+          "type": "string",
+          "minLength": 1,
+          "description": "对白风格提示。"
+        },
+        "relationships": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/relationship"
+          },
+          "default": []
+        }
+      }
+    },
+    "relationship": {
+      "type": "object",
+      "required": ["target", "type", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "location": {
+      "type": "object",
+      "required": ["id", "name", "description", "visual_notes"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "visual_notes": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "scene": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "source_chapters",
+        "location",
+        "time",
+        "characters",
+        "dramatic_purpose",
+        "conflict",
+        "beats"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_chapters": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "description": "该场景对应的原小说章节 ID。"
+        },
+        "location": {
+          "$ref": "#/$defs/id"
+        },
+        "time": {
+          "type": "string",
+          "minLength": 1,
+          "description": "场景时间，例如 night、day、morning 或具体时间。"
+        },
+        "characters": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "description": "该场景出场人物 ID。"
+        },
+        "dramatic_purpose": {
+          "type": "string",
+          "minLength": 1,
+          "description": "该场戏在叙事中的功能。"
+        },
+        "conflict": {
+          "type": "string",
+          "minLength": 1,
+          "description": "该场戏的核心冲突。"
+        },
+        "beats": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/beat"
+          }
+        },
+        "adaptation_notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": []
+        }
+      }
+    },
+    "beat": {
+      "type": "object",
+      "required": ["type", "content"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["action", "dialogue", "narration", "transition", "note"]
+        },
+        "character": {
+          "$ref": "#/$defs/id"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "dialogue"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["character"]
+          }
+        }
+      ]
+    },
+    "adaptation_report": {
+      "type": "object",
+      "required": [
+        "chapter_count",
+        "scene_count",
+        "character_count",
+        "main_conflicts",
+        "omitted_or_compressed",
+        "revision_suggestions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "chapter_count": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "scene_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "character_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "main_conflicts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "omitted_or_compressed": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "revision_suggestions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}
