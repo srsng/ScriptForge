@@ -2,13 +2,11 @@
 
 ScriptForge 是一个面向小说作者的 AI 剧本改编工作台。它把 3 个章节以上的小说文本转换为可编辑、可校验、可导出的结构化剧本 YAML，帮助作者快速获得可以继续打磨的剧本初稿。
 
-本项目用于 48 小时 AI 黑客马拉松，选择课题为：AI 小说转剧本工具。
-
 ## 一句话定位
 
 ScriptForge 不只是让 AI 生成一段剧本文本，而是把小说改编过程拆成可追溯、可校验、可编辑的结构化工作流。
 
-## 核心交付
+## 主要功能
 
 - 支持输入 3 个章节以上的小说文本。
 - 自动分析人物、地点、关键事件、冲突和人物动机。
@@ -17,7 +15,7 @@ ScriptForge 不只是让 AI 生成一段剧本文本，而是把小说改编过�
 - 提供 YAML Schema 文档，并说明设计原因。
 - 提供剧本预览、Schema 校验、错误提示和导出能力。
 
-## 推荐 MVP 流程
+## 工作流程
 
 ```text
 小说章节输入
@@ -37,19 +35,19 @@ YAML 导出与剧本预览
 
 ## 技术路线
 
-为了保证 48 小时内稳定交付，第一版采用 Next.js 全栈单体应用：
+ScriptForge 采用面向结构化生成的全栈 Web 应用架构：
 
-- 前端：Next.js App Router、TypeScript、Tailwind CSS、shadcn/ui、lucide-react
+- 应用框架：Next.js App Router、TypeScript
+- 界面组件：Tailwind CSS、shadcn/ui、lucide-react
 - 编辑器：Monaco Editor 或 CodeMirror
-- YAML：yaml 或 js-yaml
+- YAML 处理：yaml 或 js-yaml
 - Schema 校验：JSON Schema + Ajv
 - AI 接入：OpenAI-compatible adapter，便于切换不同模型
-- 存储：第一版不依赖数据库，优先使用浏览器状态和文件导出
-- 导出：YAML、Markdown、JSON
+- 导出格式：YAML、Markdown、JSON
 
-## 产品视图
+## 产品界面
 
-第一版建议做成单页工作台：
+应用界面以工作台为主，围绕“输入、生成、校验、预览、导出”组织：
 
 ```text
 左侧：章节输入与示例文本
@@ -57,7 +55,7 @@ YAML 导出与剧本预览
 右侧：YAML 编辑器、Schema 校验结果、剧本预览
 ```
 
-打开应用后直接进入工作台，不做营销型首页。
+打开应用后直接进入工作台，减少从小说输入到剧本输出的操作路径。
 
 ## 文档索引
 
@@ -65,18 +63,10 @@ YAML 导出与剧本预览
 - [产品设计](docs/product-design.md)
 - [技术设计](docs/technical-design.md)
 - [YAML Schema 说明](docs/yaml-schema.md)
-- [48 小时执行计划](docs/48-hour-plan.md)
-- [演示脚本](docs/demo-script.md)
 - [JSON Schema 文件](schema/scriptforge.schema.json)
 
-## Demo 重点
+## 输出特点
 
-演示时重点证明三件事：
-
-1. ScriptForge 能处理 3 个章节以上的小说输入。
+1. 支持处理 3 个章节以上的小说输入。
 2. 输出不是普通文本，而是符合 Schema 的结构化 YAML。
 3. 生成结果可以追溯来源、校验字段、继续编辑和导出。
-
-## 当前阶段
-
-当前阶段是项目启动和文档定稿。下一步建议初始化 Next.js 项目骨架，并实现静态样例版工作台，再接入 AI 生成链路。
