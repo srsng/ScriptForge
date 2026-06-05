@@ -1,0 +1,280 @@
+{
+  "script": {
+    "schema_version": "1.0",
+    "title": "两点十七分的钟声",
+    "metadata": {
+      "language": "zh-CN",
+      "format": "short_drama",
+      "genre": "都市悬疑",
+      "target_duration_minutes": 12,
+      "logline": "旧港书店主理人林雾追查父亲失踪前留下的钟声录音，在拆迁前夜公开一份被隐藏的火灾真相。",
+      "tone": "克制、紧张、带有旧港城市质感"
+    },
+    "source": {
+      "type": "novel",
+      "chapters": [
+        {
+          "id": "ch_001",
+          "title": "第一章 雨棚下的遗嘱",
+          "summary": "林雾在雨夜回到即将拆迁的潮声书店，发现父亲留下的账本和停在两点十七分的录音。"
+        },
+        {
+          "id": "ch_002",
+          "title": "第二章 停摆的钟楼",
+          "summary": "林雾与贺燃进入钟楼查找录音来源，发现开发公司试图赶在听证会前拆除证据。"
+        },
+        {
+          "id": "ch_003",
+          "title": "第三章 午夜排练",
+          "summary": "众人在旧剧场以排练为掩护公开火灾报告，逼迫蒋珩承认证据被压下。"
+        }
+      ]
+    },
+    "characters": [
+      {
+        "id": "char_001",
+        "name": "林雾",
+        "role": "protagonist",
+        "description": "潮声书店的新主理人，习惯用冷静的记录压住情绪。",
+        "motivation": "弄清父亲失踪前真正想保护的东西，并保住旧港最后一片公共记忆。",
+        "arc": "从只想整理遗物的旁观者，变成愿意公开站出来的行动者。",
+        "voice": "短句多，克制，紧张时会把问题问得很具体。",
+        "relationships": [
+          {
+            "target": "char_002",
+            "type": "盟友",
+            "description": "两人因录音线索合作，互相补足判断和技术能力。"
+          },
+          {
+            "target": "char_004",
+            "type": "对立",
+            "description": "林雾要公开证据，蒋珩要按时完成拆迁。"
+          }
+        ]
+      },
+      {
+        "id": "char_002",
+        "name": "贺燃",
+        "role": "supporting",
+        "description": "旧剧场的音响师，熟悉钟楼和剧场的老线路。",
+        "motivation": "保护旧剧场，也弥补当年没有替工友作证的愧疚。",
+        "arc": "从谨慎回避到主动把录音接入剧场扩声系统。",
+        "voice": "话不多，常用技术细节表达判断。",
+        "relationships": [
+          {
+            "target": "char_001",
+            "type": "搭档",
+            "description": "帮助林雾把模糊线索转成可公开的证据。"
+          }
+        ]
+      },
+      {
+        "id": "char_003",
+        "name": "周阿婆",
+        "role": "supporting",
+        "description": "港口社区的老住户，保存着当年火灾后的街坊签名。",
+        "motivation": "让被迫搬走的人在拆迁前留下名字和声音。",
+        "arc": "从只愿私下提醒，到在听证会前公开作证。",
+        "voice": "温和但锋利，常用生活细节说破局势。",
+        "relationships": [
+          {
+            "target": "char_001",
+            "type": "守护者",
+            "description": "把林父托付的信封交给林雾。"
+          }
+        ]
+      },
+      {
+        "id": "char_004",
+        "name": "蒋珩",
+        "role": "antagonist",
+        "description": "开发公司项目负责人，擅长用程序和期限制造压力。",
+        "motivation": "在听证会前完成钟楼拆除，避免旧火灾报告影响项目。",
+        "arc": "从体面施压到在直播录音中露出真实目的。",
+        "voice": "礼貌、精准，习惯把威胁包装成流程。",
+        "relationships": [
+          {
+            "target": "char_001",
+            "type": "阻碍者",
+            "description": "试图让林雾停止追查并交出账本。"
+          }
+        ]
+      }
+    ],
+    "locations": [
+      {
+        "id": "loc_001",
+        "name": "潮声书店",
+        "description": "旧港雨棚下的小书店，后门通往废弃仓库。",
+        "visual_notes": "潮湿木柜、旧账本、窗外蓝色拆迁围挡。"
+      },
+      {
+        "id": "loc_002",
+        "name": "停摆钟楼",
+        "description": "港口旧钟楼，机械钟停在两点十七分。",
+        "visual_notes": "锈蚀齿轮、窄楼梯、钟面裂缝和微弱红色警示灯。"
+      },
+      {
+        "id": "loc_003",
+        "name": "海风旧剧场",
+        "description": "社区剧团排练场，也是听证会前居民集合的地方。",
+        "visual_notes": "空观众席、舞台尘光、临时投影幕和吊挂麦克风。"
+      }
+    ],
+    "scenes": [
+      {
+        "id": "scene_001",
+        "title": "账本夹层",
+        "source_chapters": ["ch_001"],
+        "location": "loc_001",
+        "time": "rainy night",
+        "characters": ["char_001", "char_003"],
+        "dramatic_purpose": "让林雾获得父亲留下的第一组线索。",
+        "conflict": "林雾只想处理遗物，周阿婆逼她正视拆迁背后的旧案。",
+        "beats": [
+          {
+            "type": "action",
+            "content": "雨水从书店雨棚边缘连成线，林雾把纸箱拖到柜台后，账本里掉出一枚生锈钥匙。"
+          },
+          {
+            "type": "dialogue",
+            "character": "char_003",
+            "content": "你父亲不是把书店留给你，他是把没说完的话留给你。"
+          },
+          {
+            "type": "action",
+            "content": "录音笔亮起，杂音后传来三下钟声，指针永远停在两点十七分。"
+          }
+        ],
+        "adaptation_notes": ["把小说内心独白压缩为账本、钥匙和录音三个可拍摄物件。"]
+      },
+      {
+        "id": "scene_002",
+        "title": "钟楼门禁",
+        "source_chapters": ["ch_002"],
+        "location": "loc_002",
+        "time": "late night",
+        "characters": ["char_001", "char_002", "char_004"],
+        "dramatic_purpose": "建立外部阻力，并把线索从书店推进到钟楼。",
+        "conflict": "林雾和贺燃要进入钟楼，蒋珩以安全流程阻止他们。",
+        "beats": [
+          {
+            "type": "action",
+            "content": "贺燃把旧门禁线接到备用电池，锁舌轻响，钟楼内部的灰尘被风推出来。"
+          },
+          {
+            "type": "dialogue",
+            "character": "char_004",
+            "content": "林小姐，擅自进入危楼，明天的听证会你也解释不清。"
+          },
+          {
+            "type": "dialogue",
+            "character": "char_001",
+            "content": "那就请你把危楼评估报告也带到听证会。"
+          }
+        ]
+      },
+      {
+        "id": "scene_003",
+        "title": "齿轮后的磁带",
+        "source_chapters": ["ch_002"],
+        "location": "loc_002",
+        "time": "2:17 a.m.",
+        "characters": ["char_001", "char_002"],
+        "dramatic_purpose": "揭示两点十七分与旧火灾报告有关。",
+        "conflict": "证据被藏在随时会启动的旧机械后，两人必须冒险取出。",
+        "beats": [
+          {
+            "type": "action",
+            "content": "齿轮忽然咬合，贺燃用扳手卡住主轴，林雾伸手从钟面背后摸出密封磁带。"
+          },
+          {
+            "type": "dialogue",
+            "character": "char_002",
+            "content": "这不是报时录音，是火警总线的备份声轨。"
+          },
+          {
+            "type": "narration",
+            "content": "磁带标签上只有一行字：二点十七分，别让他们重写。"
+          }
+        ],
+        "adaptation_notes": ["把原文多段调查过程合并成一场带时限的钟楼取证。"]
+      },
+      {
+        "id": "scene_004",
+        "title": "空剧场试音",
+        "source_chapters": ["ch_003"],
+        "location": "loc_003",
+        "time": "before dawn",
+        "characters": ["char_001", "char_002", "char_003"],
+        "dramatic_purpose": "让社区证词与技术证据合流。",
+        "conflict": "公开证据会让街坊承受搬迁压力，沉默则让旧案被彻底抹掉。",
+        "beats": [
+          {
+            "type": "action",
+            "content": "舞台灯一盏盏亮起，周阿婆把泛黄签名铺在钢琴盖上。"
+          },
+          {
+            "type": "dialogue",
+            "character": "char_003",
+            "content": "我们不是不记得，我们只是等一个能让大家一起说出口的地方。"
+          },
+          {
+            "type": "dialogue",
+            "character": "char_001",
+            "content": "那今晚就让钟声替每个人报一次名。"
+          }
+        ]
+      },
+      {
+        "id": "scene_005",
+        "title": "直播里的钟声",
+        "source_chapters": ["ch_003"],
+        "location": "loc_003",
+        "time": "public hearing morning",
+        "characters": ["char_001", "char_002", "char_003", "char_004"],
+        "dramatic_purpose": "完成公开对峙，让主角从追查者变成行动者。",
+        "conflict": "蒋珩试图切断直播，林雾必须在设备被拔掉前说出证据逻辑。",
+        "beats": [
+          {
+            "type": "action",
+            "content": "投影幕上出现钟楼图纸，剧场扩声器播出两点十七分的火警声轨。"
+          },
+          {
+            "type": "dialogue",
+            "character": "char_004",
+            "content": "这份材料来源不明，不能进入听证程序。"
+          },
+          {
+            "type": "dialogue",
+            "character": "char_001",
+            "content": "来源就在你们申请拆除的钟楼里，签收人是你父亲，复印件在每位居民手上。"
+          },
+          {
+            "type": "transition",
+            "content": "钟声压过人群骚动，画面切到雨后书店门口重新挂起的营业牌。"
+          }
+        ],
+        "adaptation_notes": ["把听证会、直播和社区排练合并为同一高潮空间，降低场景成本。"]
+      }
+    ],
+    "adaptation_report": {
+      "chapter_count": 3,
+      "scene_count": 5,
+      "character_count": 4,
+      "main_conflicts": [
+        "林雾要公开父亲留下的旧案证据，蒋珩要在听证会前完成拆迁并切断证据链。",
+        "社区居民害怕搬迁压力，但又不愿让旧港记忆被改写。"
+      ],
+      "omitted_or_compressed": [
+        "压缩了第一章中林雾整理书店的长段回忆。",
+        "合并第二章多次走访调查为钟楼取证一场戏。",
+        "把第三章的听证会准备与剧场排练合并为高潮段落。"
+      ],
+      "revision_suggestions": [
+        "可以在第二场增加蒋珩与林父旧案的个人关联细节。",
+        "如目标时长扩展到 20 分钟，可补一场林雾独自阅读父亲信件的静场。"
+      ]
+    }
+  }
+}
