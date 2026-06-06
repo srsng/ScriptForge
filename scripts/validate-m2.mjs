@@ -175,7 +175,7 @@ function validateAdaptationCompleteness(report) {
   if (!report.omitted_or_compressed || report.omitted_or_compressed.length === 0)
     warnings.push({ path: "$.script.adaptation_report.omitted_or_compressed", message: "改编报告缺少 omitted_or_compressed，建议说明省略或压缩的内容。", source: "reference", severity: "warning", keyword: "completeness" });
   if (!report.revision_suggestions || report.revision_suggestions.length === 0)
-    warnings.push({ path: "$.script.adaptation_report.revision_suggestions", message: "改编报告缺少 revision_suggestions，建议至少提供一条修改建议。", source: "reference", severity: "warning", keyword: "completeness" });
+    warnings.push({ path: "$.script.adaptation_report.revision_suggestions", message: "改编报告缺少 revision_suggestions，建议至少提供一条后续修改建议。", source: "reference", severity: "warning", keyword: "completeness" });
   return warnings;
 }
 

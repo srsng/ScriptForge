@@ -9,6 +9,7 @@ type GenerationPanelProps = {
   generationError: string;
   diagnostics: GenerationDiagnostic[];
   resultSource: ResultSource;
+  targetDurationMinutes: number;
   canGenerate: boolean;
   onGenerate: () => void;
 };
@@ -22,7 +23,7 @@ function generateStateLabel(state: GenerateState): string {
     case "success":
       return "成功";
     case "needs_revision":
-      return "内容密度不足";
+      return "剧本质量不足";
     case "error":
       return "失败";
     case "idle":
@@ -35,15 +36,18 @@ export function GenerationPanel({
   generationError,
   diagnostics,
   resultSource,
+  targetDurationMinutes,
   canGenerate,
   onGenerate,
 }: GenerationPanelProps) {
+  const capacitySummary = diagnostics.find((item) => item.message.startsWith("CAPACITY_SUMMARY:"));
+
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">生成流程</h2>
-          <p className="text-sm text-zinc-600">AI 生成后进入校验和内容密度门禁</p>
+          <p className="text-sm text-zinc-600">AI 生成结构化剧本草稿，并输出阶段诊断与容量指标</p>
         </div>
         <button
           className="rounded-md bg-indigo-700 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-800 disabled:bg-zinc-300"
@@ -81,7 +85,14 @@ export function GenerationPanel({
 
       {generateState === "needs_revision" ? (
         <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          结构化草稿已返回，但内容密度不足；请重新生成、调整目标时长，或手动补足 scene / beats / dialogue。
+          结构化草稿已返回；部分参考容量指标可能接近目标，但文本厚度、场景过程、动作或对白质量仍可能无法支撑 {targetDurationMinutes} 分钟目标时长。
+        </div>
+      ) : null}
+
+      {capacitySummary ? (
+        <div className="mt-4 rounded-md border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-900">
+          <div className="font-medium">容量指标</div>
+          <p className="mt-1">{capacitySummary.message.replace(/^CAPACITY_SUMMARY:\s*/, "")}</p>
         </div>
       ) : null}
 

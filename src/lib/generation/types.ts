@@ -71,3 +71,9 @@ export type GenerationApiRequest = {
   chapters?: GenerationRequest["chapters"];
   target?: Partial<GenerationRequest["target"]>;
 };
+
+export type RevisionRequest = {
+  request: GenerationRequest;
+  document: ScriptForgeDocument;
+  directions?: string[];
+};

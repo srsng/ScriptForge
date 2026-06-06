@@ -75,7 +75,7 @@ export function WorkbenchShell() {
   const [format, setFormat] = useState<ScriptFormat>("short_drama");
   const [genre, setGenre] = useState("未指定");
   const [tone, setTone] = useState("未指定");
-  const [duration, setDuration] = useState(12);
+  const [duration, setDuration] = useState(11);
   const [workspaces, setWorkspaces] = useState<WorkspaceIndexEntry[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceRecord | null>(null);
   const [resultText, setResultText] = useState(EMPTY_RESULT_TEXT);
@@ -91,6 +91,7 @@ export function WorkbenchShell() {
   const [yamlValidating, setYamlValidating] = useState(false);
   const [repairResult, setRepairResult] = useState<RepairResult | null>(null);
   const [repairing, setRepairing] = useState(false);
+  const [revising, setRevising] = useState(false);
   const [hasUnsavedState, setHasUnsavedState] = useState(false);
 
   const normalization = useMemo(() => normalizeRawNovelInput(rawInput), [rawInput]);
@@ -282,7 +283,7 @@ export function WorkbenchShell() {
       const source = data.resultSource ?? (data.status === "needs_revision" ? "ai_draft" : "ai");
       setResultSource(source);
       const successMessage = data.status === "needs_revision"
-        ? "AI 返回了结构化草稿，但内容密度不足，不满足目标时长，建议重新生成或手动加强。"
+        ? "AI 返回了结构化草稿，但剧本质量不足，不满足目标时长，建议重新生成或手动加强。"
         : "已生成 AI 剧本初稿";
       if (activeWorkspace) {
         await saveCurrentWorkspaceState({
@@ -390,6 +391,76 @@ export function WorkbenchShell() {
       setMessage(`自动修复请求失败：${errorMessage}`);
     } finally {
       setRepairing(false);
+    }
+  }
+
+  async function handleReviseByDirections(directions: string[]) {
+    if (!currentDocument) {
+      setMessage("没有可改写内容：请先生成剧本草稿");
+      return;
+    }
+    if (directions.length === 0) {
+      setMessage("缺少后续修改建议，无法改写");
+      return;
+    }
+
+    setRevising(true);
+    setGenerationError("");
+    setMessage("正在按后续修改建议改写");
+
+    try {
+      const response = await fetch("/api/revise", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          request: currentGenerationRequest,
+          document: currentDocument,
+          directions,
+        }),
+      });
+      const data = (await response.json()) as GenerateResponse;
+
+      if (!response.ok || data.status === "error") {
+        throw new Error(data.error ?? "后续修改建议改写失败");
+      }
+      if (!data.document) {
+        throw new Error(data.error ?? "AI 没有返回可展示的改写剧本");
+      }
+
+      const yaml = data.scriptYaml ?? documentToYaml(data.document);
+      const source = data.resultSource ?? (data.status === "needs_revision" ? "ai_draft" : "ai");
+      const nextMessage = data.status === "needs_revision"
+        ? "已按后续修改建议改写，但剧本质量仍需继续加强。"
+        : "已按后续修改建议改写剧本";
+
+      setResultText(jsonPreview(data.document));
+      setYamlText(yaml);
+      setYamlValidation(data.validation ?? null);
+      setGenerationDiagnostics(data.diagnostics ?? []);
+      setGenerateState(data.status === "needs_revision" ? "needs_revision" : "success");
+      setResultSource(source);
+      setRepairResult(null);
+
+      if (activeWorkspace) {
+        await saveCurrentWorkspaceState({
+          result: data.document,
+          resultSource: source,
+          yamlText: yaml,
+          yamlValidation: data.validation ?? null,
+          generationDiagnostics: data.diagnostics ?? [],
+          generationError: "",
+          message: nextMessage,
+        });
+      } else {
+        setHasUnsavedState(true);
+      }
+      setMessage(nextMessage);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setGenerationError(errorMessage);
+      setMessage(errorMessage);
+    } finally {
+      setRevising(false);
     }
   }
 
@@ -547,6 +618,7 @@ export function WorkbenchShell() {
               generationError={generationError}
               diagnostics={generationDiagnostics}
               resultSource={resultSource}
+              targetDurationMinutes={duration}
               canGenerate={canGenerate}
               onGenerate={() => void generateDraft()}
             />
@@ -563,7 +635,12 @@ export function WorkbenchShell() {
             />
 
             <ScriptPreviewPanel document={currentDocument} validation={yamlValidation} />
-            <AdaptationReportPanel document={currentDocument} validation={yamlValidation} />
+            <AdaptationReportPanel
+              document={currentDocument}
+              revising={revising}
+              validation={yamlValidation}
+              onReviseByDirections={(directions) => void handleReviseByDirections(directions)}
+            />
             <YamlEditorPanel
               yamlText={yamlText}
               validation={yamlValidation}

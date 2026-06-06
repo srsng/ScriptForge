@@ -1,7 +1,8 @@
-import type { GenerationRequest, ScriptForgeDocument } from "@/types/scriptforge";
+import type { GenerationRequest } from "@/types/scriptforge";
 import { MIN_CHAPTER_COUNT } from "@/types/scriptforge";
 import { validateScriptForgeDocument } from "@/lib/schema";
 import { requestJsonFromModel } from "./client";
+import { coerceDocument, parseModelJson } from "./document";
 import { buildGenerationPrompts, flattenForSingleRequest } from "./prompts";
 import { evaluateScriptDensity } from "./quality";
 import type { GenerationDiagnostic, GenerationResult } from "./types";
@@ -131,27 +132,4 @@ export async function generateScriptForgeDocument(request: GenerationRequest): P
     promptStages,
     model: modelResponse.model,
   };
-}
-
-function parseModelJson(content: string): { ok: true; value: unknown } | { ok: false; message: string } {
-  const trimmed = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  try {
-    return { ok: true, value: JSON.parse(trimmed) as unknown };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { ok: false, message: `AI JSON 解析失败：${message}` };
-  }
-}
-
-function coerceDocument(value: unknown): ScriptForgeDocument {
-  if (value && typeof value === "object") {
-    const objectValue = value as { document?: unknown; script?: unknown };
-    if (objectValue.document && typeof objectValue.document === "object") {
-      return objectValue.document as ScriptForgeDocument;
-    }
-    if (objectValue.script && typeof objectValue.script === "object") {
-      return value as ScriptForgeDocument;
-    }
-  }
-  return { script: value as ScriptForgeDocument["script"] };
 }

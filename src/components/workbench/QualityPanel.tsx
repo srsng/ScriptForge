@@ -37,7 +37,7 @@ export function QualityPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">质量状态</h2>
-          <p className="text-sm text-zinc-600">ValidationResult / RepairResult 和内容密度门禁在这里汇总。</p>
+          <p className="text-sm text-zinc-600">汇总 Schema 校验、自动修复和剧本质量门禁结果。</p>
         </div>
         <button
           className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:bg-zinc-300"
@@ -68,7 +68,7 @@ export function QualityPanel({
 
       {needsRevision ? (
         <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          结构化草稿不满足目标时长或剧本密度要求：请重点补足场景过程、beats 数量和对白轮次后再作为成品处理。
+          结构化草稿不满足目标时长或剧本质量要求：请重点补足自然场景过程、渲染氛围、动作过程、对白潜台词和动作配合后再作为成品处理。
         </div>
       ) : null}
 

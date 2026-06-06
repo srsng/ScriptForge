@@ -6,7 +6,7 @@
  * 这个脚本做静态契约验收，确保 M7 不退化成字段复述：
  *   1. 预览区域接入 ValidationResult
  *   2. 场景卡片展示来源章节、来源缺失/引用异常提示、戏剧目的、冲突、beats
- *   3. 改编报告组织为保留、压缩/省略、合并/改写、修改建议
+ *   3. 改编报告把已发生的决策组织为保留、压缩/省略、合并/改写，并把后续修改建议放入后续改进
  *   4. M7 不改生成链路和 schema 契约
  */
 
@@ -31,6 +31,17 @@ function assertContains(path, patterns) {
       assert.match(text, pattern, `${path} should match ${pattern}`);
     } else {
       assert.ok(text.includes(pattern), `${path} should contain ${pattern}`);
+    }
+  }
+}
+
+function assertNotContains(path, patterns) {
+  const text = read(path);
+  for (const pattern of patterns) {
+    if (pattern instanceof RegExp) {
+      assert.doesNotMatch(text, pattern, `${path} should not match ${pattern}`);
+    } else {
+      assert.ok(!text.includes(pattern), `${path} should not contain ${pattern}`);
     }
   }
 }
@@ -100,6 +111,7 @@ assertContains("src/components/workbench/ScriptPreviewPanel.tsx", [
   "speaker",
   "source_chapters",
   "visual_notes",
+  "渲染氛围",
 ]);
 console.log("  ✓ ScriptPreviewPanel exposes readable preview, source trace and validation status");
 
@@ -111,7 +123,11 @@ assertContains("src/components/workbench/AdaptationReportPanel.tsx", [
   "保留",
   "压缩/省略",
   "合并/改写",
+  "后续改进",
   "后续修改建议",
+  "全部应用",
+  "onReviseByDirections([item])",
+  "onReviseByDirections",
   "decisionCount",
   "不足 3 条",
   "scene.adaptation_notes",
@@ -123,9 +139,14 @@ console.log("  ✓ AdaptationReportPanel organizes adaptation decisions");
 
 const preview = read("src/components/workbench/ScriptPreviewPanel.tsx");
 assert.doesNotMatch(preview, /excerpt/i, "M7 must not invent excerpt because the current schema does not define it");
+assert.doesNotMatch(preview, /视觉提示/, "Preview should show visual_notes as 渲染氛围");
 
 const report = read("src/components/workbench/AdaptationReportPanel.tsx");
 assert.doesNotMatch(report, /硬编码|演示内容/, "Adaptation report must not hardcode demo content");
+assertNotContains("src/components/workbench/AdaptationReportPanel.tsx", [
+  'category: "后续修改建议"',
+  "缺少说明：暂无可展示的保留、压缩、合并/改写或后续修改建议。",
+]);
 console.log("  ✓ M7 stays within current schema and real document data");
 
 console.log("═══════════════════════════════════════════");

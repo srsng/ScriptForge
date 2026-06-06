@@ -89,7 +89,7 @@ export function ScriptPreviewPanel({ document, validation }: ScriptPreviewPanelP
                 <article className="rounded-md bg-zinc-50 p-3 text-sm" key={location.id}>
                   <div className="font-medium">{location.name}</div>
                   <p className="mt-1 text-zinc-700">{location.description || "缺少地点说明"}</p>
-                  <p className="mt-1 text-zinc-600">视觉提示：{location.visual_notes || "缺少视觉提示"}</p>
+                  <p className="mt-1 text-zinc-600">渲染氛围：{location.visual_notes || "缺少渲染氛围"}</p>
                   <p className="mt-1 text-zinc-600">相关场景：{relatedSceneTitles.length > 0 ? relatedSceneTitles.join("、") : "暂无相关场景"}</p>
                 </article>
               );
@@ -117,10 +117,10 @@ export function ScriptPreviewPanel({ document, validation }: ScriptPreviewPanelP
                   ) : null}
                 </div>
 
-                <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
+                <div className="mt-3 space-y-2 text-sm">
                   <p><span className="font-medium">戏剧目的：</span>{scene.dramatic_purpose || "缺少 dramatic_purpose"}</p>
                   <p><span className="font-medium">冲突：</span>{scene.conflict || "缺少 conflict"}</p>
-                  <p className="md:col-span-2">
+                  <p>
                     <span className="font-medium">出场人物：</span>
                     {scene.characters.length > 0 ? scene.characters.map((id) => characters.get(id)?.name ?? id).join("、") : "暂无人物"}
                   </p>

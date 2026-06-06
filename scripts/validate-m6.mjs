@@ -67,6 +67,7 @@ assertContains("src/components/workbench/WorkbenchShell.tsx", [
   'fetch("/api/samples/public-domain-novel")',
   'fetch("/api/workspaces")',
   'fetch("/api/generate"',
+  'fetch("/api/revise"',
   'fetch("/api/validate"',
   'fetch("/api/repair"',
   "documentToYaml",
@@ -76,6 +77,8 @@ assertContains("src/components/workbench/WorkbenchShell.tsx", [
   "needs_revision",
   "ai_draft",
   "validation",
+  "revising",
+  "onReviseByDirections",
   "RepairResult",
 ]);
 console.log("  ✓ Workbench keeps M1-M5 API wiring");
@@ -84,7 +87,7 @@ assertContains("src/components/workbench/GenerationPanel.tsx", [
   "AI",
   "needs_revision",
   "结构化草稿",
-  "内容密度不足",
+  "剧本质量不足",
   "repair",
   "生成",
   "校验",
@@ -119,6 +122,10 @@ assertContains("src/components/workbench/AdaptationReportPanel.tsx", [
   "main_conflicts",
   "omitted_or_compressed",
   "revision_suggestions",
+  "后续改进",
+  "全部应用",
+  "onReviseByDirections([item])",
+  "onReviseByDirections",
 ]);
 console.log("  ✓ Adaptation report panel consumes report fields");
 

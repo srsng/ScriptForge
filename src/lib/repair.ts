@@ -548,7 +548,7 @@ function fixMissingRequiredField(
       id: `loc_${String(idx + 1).padStart(3, "0")}`,
       name: `地点${idx + 1}`,
       description: "需补充描述。",
-      visual_notes: "需补充视觉提示。",
+      visual_notes: "需补充渲染氛围。",
     };
     if (missingProp && missingProp in locDefaults) {
       loc[missingProp] = deepClone(locDefaults[missingProp]);

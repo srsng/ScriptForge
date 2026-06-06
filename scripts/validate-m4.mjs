@@ -61,7 +61,8 @@ for (const token of [
   "characters",
   "locations",
   "adaptation_report",
-  "内容密度",
+  "剧本改写质量要求",
+  "自然场景边界",
   "不要输出剧情摘要",
 ]) {
   assert.match(prompts, new RegExp(token), `prompts.ts must preserve source-grounded generation instruction: ${token}`);

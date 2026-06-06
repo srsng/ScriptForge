@@ -232,7 +232,7 @@ function validateAdaptationCompleteness(
   if (!report.revision_suggestions || report.revision_suggestions.length === 0) {
     warnings.push({
       path: "$.script.adaptation_report.revision_suggestions",
-      message: "改编报告缺少 revision_suggestions，建议至少提供一条修改建议。",
+      message: "改编报告缺少 revision_suggestions，建议至少提供一条后续修改建议。",
       source: "reference",
       severity: "warning",
       keyword: "completeness",

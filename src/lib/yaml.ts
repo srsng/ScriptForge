@@ -187,7 +187,7 @@ export function documentToMarkdown(doc: ScriptForgeDocument): string {
     lines.push(`### ${l.name}`);
     lines.push("");
     lines.push(`- **描述**：${l.description}`);
-    lines.push(`- **视觉提示**：${l.visual_notes}`);
+    lines.push(`- **渲染氛围**：${l.visual_notes}`);
     lines.push("");
   }
 
@@ -241,7 +241,7 @@ export function documentToMarkdown(doc: ScriptForgeDocument): string {
     lines.push(`- ${o}`);
   }
   lines.push("");
-  lines.push("### 修改建议");
+  lines.push("### 后续修改建议");
   for (const r of s.adaptation_report.revision_suggestions) {
     lines.push(`- ${r}`);
   }
