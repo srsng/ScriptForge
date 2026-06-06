@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { normalizeRawNovelInput } from "@/lib/input";
-import { generateScriptForgeDocument, normalizeGenerationRequest } from "@/lib/generation/generate";
+import { generateScriptForgeDocument, normalizeGenerationRequest, normalizeTargetDuration } from "@/lib/generation/generate";
 import { getWorkspace, saveWorkspaceResult } from "@/lib/workspace-data";
 import { documentToYaml } from "@/lib/yaml";
 import type { GenerationRequest } from "@/types/scriptforge";
@@ -19,12 +19,17 @@ function buildRequestFromSource(body: GenerateBody): GenerationRequest | null {
   if (typeof body.sourceText !== "string" || !body.sourceText.trim()) return null;
   const normalization = normalizeRawNovelInput(body.sourceText);
   const target = body.target && typeof body.target === "object" ? body.target as Partial<GenerationRequest["target"]> : {};
+  const duration = normalizeTargetDuration(target.target_duration_minutes);
+  if (duration === null) {
+    throw new Error("target_duration_minutes must be an integer between 1 and 180.");
+  }
+
   return {
     chapters: normalization.chapters,
     target: {
       format: target.format === "film" || target.format === "stage" ? target.format : "short_drama",
       genre: typeof target.genre === "string" && target.genre.trim() ? target.genre.trim() : "未指定",
-      target_duration_minutes: Number.isFinite(Number(target.target_duration_minutes)) ? Number(target.target_duration_minutes) : 12,
+      target_duration_minutes: duration,
       tone: typeof target.tone === "string" && target.tone.trim() ? target.tone.trim() : "紧凑、可拍摄",
     },
   };
@@ -32,10 +37,17 @@ function buildRequestFromSource(body: GenerateBody): GenerationRequest | null {
 
 async function resolveGenerationRequest(body: GenerateBody): Promise<{ request: GenerationRequest; workspaceId?: string }> {
   const direct = normalizeGenerationRequest(body.request ?? body);
-  if (direct) return { request: direct };
+  const workspaceId = typeof body.workspaceId === "string" && body.workspaceId.trim()
+    ? body.workspaceId.trim()
+    : undefined;
 
-  if (typeof body.workspaceId === "string" && body.workspaceId.trim()) {
-    const workspace = await getWorkspace(body.workspaceId.trim());
+  if (direct) return { request: direct, workspaceId };
+  if (body.request !== undefined) {
+    throw new Error("Invalid GenerationRequest payload.");
+  }
+
+  if (workspaceId) {
+    const workspace = await getWorkspace(workspaceId);
     if (!workspace) throw new Error("Workspace not found.");
     return { request: workspace.request, workspaceId: workspace.id };
   }

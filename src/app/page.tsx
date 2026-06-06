@@ -12,6 +12,7 @@ import {
   generateMarkdownFilename,
 } from "@/lib/yaml";
 import type { ValidationResult } from "@/lib/schema";
+import type { RepairResult } from "@/lib/repair";
 
 type WorkspaceIndexEntry = {
   id: string;
@@ -110,9 +111,21 @@ export default function Home() {
   const [yamlText, setYamlText] = useState("");
   const [yamlValidation, setYamlValidation] = useState<ValidationResult | null>(null);
   const [yamlValidating, setYamlValidating] = useState(false);
+  // ── M5 auto-repair state ──
+  const [repairResult, setRepairResult] = useState<RepairResult | null>(null);
+  const [repairing, setRepairing] = useState(false);
 
   const normalization = useMemo(() => normalizeRawNovelInput(rawInput), [rawInput]);
   const hasResult = activeWorkspace?.result !== null && activeWorkspace?.result !== undefined;
+  const currentGenerationRequest: GenerationRequest = {
+    chapters: normalization.chapters,
+    target: {
+      format: "short_drama",
+      genre,
+      tone,
+      target_duration_minutes: duration,
+    },
+  };
 
   async function fetchWorkspaceList() {
     const response = await fetch("/api/workspaces");
@@ -232,18 +245,11 @@ export default function Home() {
     setGenerationDiagnostics([]);
     setMessage("正在生成剧本初稿");
 
-    const payload = activeWorkspace
-      ? { workspaceId: activeWorkspace.id, persist: true }
-      : {
-          sourceText: rawInput,
-          target: {
-            format: "short_drama",
-            genre,
-            tone,
-            target_duration_minutes: duration,
-            logline: "自动从输入章节提炼核心冲突。",
-          },
-        };
+    const payload = {
+      request: currentGenerationRequest,
+      workspaceId: activeWorkspace?.id,
+      persist: Boolean(activeWorkspace),
+    };
 
     try {
       const response = await fetch("/api/generate", {
@@ -340,6 +346,47 @@ export default function Home() {
       setYamlValidation(null);
     } finally {
       setYamlValidating(false);
+    }
+  }
+
+  // ── M5 auto-repair ──
+  async function handleAutoRepair() {
+    const doc = parseResultText();
+    if (!doc && !yamlText.trim()) {
+      setMessage("没有可修复的内容：请先通过结果 JSON 或 YAML 提供文档");
+      return;
+    }
+    setRepairing(true);
+    setRepairResult(null);
+    setMessage("正在执行自动修复...");
+    try {
+      const payload = yamlText.trim()
+        ? { yamlText }
+        : { document: doc };
+      const response = await fetch("/api/repair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = (await response.json()) as RepairResult;
+      setRepairResult(result);
+      if (result.status === "ok") {
+        setMessage(`自动修复完成：${result.appliedFixes.length} 项修复已应用`);
+        if (result.document) {
+          setResultText(JSON.stringify(result.document, null, 2));
+          if (result.yamlText) setYamlText(result.yamlText);
+          setYamlValidation(null);
+        }
+      } else if (result.status === "partial") {
+        setMessage(`部分修复：${result.appliedFixes.length} 项修复已应用，仍有 ${result.diagnostics.filter(d => d.severity === "error").length} 条错误待处理`);
+      } else {
+        setMessage(`自动修复失败：${result.diagnostics.length} 条无法自动修复的错误`);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setMessage(`自动修复请求失败：${errorMessage}`);
+    } finally {
+      setRepairing(false);
     }
   }
 
@@ -462,7 +509,20 @@ export default function Home() {
                 </label>
                 <label className="grid gap-1 text-sm font-medium">
                   时长（分钟）
-                  <input className="rounded-md border border-zinc-300 px-3 py-2 font-normal outline-none focus:border-cyan-700" min={1} type="number" value={duration} onChange={(event) => setDuration(Number(event.target.value))} />
+                  <input
+                    className="rounded-md border border-zinc-300 px-3 py-2 font-normal outline-none focus:border-cyan-700"
+                    max={180}
+                    min={1}
+                    step={1}
+                    type="number"
+                    value={duration}
+                    onChange={(event) => {
+                      const nextDuration = Number(event.target.value);
+                      if (Number.isInteger(nextDuration) && nextDuration >= 1 && nextDuration <= 180) {
+                        setDuration(nextDuration);
+                      }
+                    }}
+                  />
                 </label>
                 <label className="grid gap-1 text-sm font-medium md:col-span-3">
                   语气
@@ -665,6 +725,14 @@ export default function Home() {
                   >
                     {yamlValidating ? "校验中..." : "重新校验 YAML"}
                   </button>
+                  <button
+                    className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:bg-zinc-300"
+                    disabled={repairing || (!yamlText.trim() && !resultText.trim())}
+                    onClick={() => void handleAutoRepair()}
+                    type="button"
+                  >
+                    {repairing ? "修复中..." : "🔧 自动修复 / 容错"}
+                  </button>
                   {yamlValidation && (
                     <span className={`text-sm font-medium ${yamlValidation.valid ? (yamlValidation.status === "warn" ? "text-amber-700" : "text-emerald-700") : "text-red-700"}`}>
                       {yamlValidation.status === "pass" && "✅ 校验通过"}
@@ -699,6 +767,59 @@ export default function Home() {
                       <li key={i}><code className="text-xs">{w.path}</code> — {w.message}</li>
                     ))}
                   </ul>
+                </div>
+              )}
+
+              {/* ── M5 auto-repair result ── */}
+              {repairResult && (
+                <div className={`border-t px-4 py-3 text-sm ${repairResult.status === "ok" ? "bg-emerald-50 border-emerald-200" : repairResult.status === "partial" ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <h3 className="font-semibold">
+                      {repairResult.status === "ok" && "✅ 自动修复完成"}
+                      {repairResult.status === "partial" && "⚠️ 部分修复"}
+                      {repairResult.status === "failed" && "❌ 修复失败"}
+                    </h3>
+                    <span className="text-xs text-zinc-500">{repairResult.appliedFixes.length} 项修复已应用</span>
+                  </div>
+                  {repairResult.appliedFixes.length > 0 && (
+                    <ul className="list-inside list-disc space-y-1 text-zinc-700 mb-2">
+                      {repairResult.appliedFixes.map((fix, i) => (
+                        <li key={i}>
+                          <code className="mr-1 rounded bg-zinc-100 px-1 text-xs">{fix.path}</code>
+                          <span>{fix.message}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {repairResult.diagnostics.length > 0 && (
+                    <div className="mt-2">
+                      <span className="text-sm font-medium text-zinc-600">修复后诊断：</span>
+                      <ul className="list-inside list-disc space-y-1 mt-1">
+                        {repairResult.diagnostics.slice(0, 10).map((d, i) => (
+                          <li key={i} className={`${d.severity === "error" ? "text-red-700" : "text-amber-700"}`}>
+                            <code className="mr-1 rounded bg-zinc-100 px-1 text-xs">{d.path}</code>
+                            {d.message}
+                          </li>
+                        ))}
+                        {repairResult.diagnostics.length > 10 && <li className="text-zinc-500">...还有 {repairResult.diagnostics.length - 10} 条</li>}
+                      </ul>
+                    </div>
+                  )}
+                  {repairResult.document && (
+                    <button
+                      className="mt-2 rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200"
+                      onClick={() => {
+                        setResultText(JSON.stringify(repairResult.document!, null, 2));
+                        if (repairResult.yamlText) setYamlText(repairResult.yamlText);
+                        setYamlValidation(null);
+                        setRepairResult(null);
+                        setMessage("修复结果已应用");
+                      }}
+                      type="button"
+                    >
+                      应用修复结果
+                    </button>
+                  )}
                 </div>
               )}
             </div>
