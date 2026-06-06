@@ -555,8 +555,8 @@ export function WorkbenchShell() {
               onApplyRepair={handleApplyRepair}
             />
 
-            <ScriptPreviewPanel document={currentDocument} />
-            <AdaptationReportPanel document={currentDocument} />
+            <ScriptPreviewPanel document={currentDocument} validation={yamlValidation} />
+            <AdaptationReportPanel document={currentDocument} validation={yamlValidation} />
             <YamlEditorPanel
               yamlText={yamlText}
               validation={yamlValidation}
