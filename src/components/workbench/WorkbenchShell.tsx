@@ -9,6 +9,7 @@ import {
   generateJsonFilename,
   generateMarkdownFilename,
   generateYamlFilename,
+  yamlToDocument,
 } from "@/lib/yaml";
 import type { ValidationResult } from "@/lib/schema";
 import type { RepairResult } from "@/lib/repair";
@@ -145,6 +146,7 @@ export function WorkbenchShell() {
   const [generationStagePreviews, setGenerationStagePreviews] = useState<GenerationStagePreview[]>([]);
   const [generationError, setGenerationError] = useState("");
   const [yamlText, setYamlText] = useState("");
+  const [lastAppliedYamlText, setLastAppliedYamlText] = useState("");
   const [yamlValidation, setYamlValidation] = useState<ValidationResult | null>(null);
   const [yamlValidating, setYamlValidating] = useState(false);
   const [repairResult, setRepairResult] = useState<RepairResult | null>(null);
@@ -165,7 +167,16 @@ export function WorkbenchShell() {
   }), [duration, format, genre, normalization.chapters, tone]);
   const canGenerate = normalization.isValid && generateState !== "loading";
   const canExport = currentDocument !== null;
-  const yamlExportBlocked = yamlValidation !== null && !yamlValidation.valid;
+  const yamlHasDraftChanges = yamlText !== lastAppliedYamlText;
+  const yamlHasValidationErrors = yamlValidation !== null && !yamlValidation.valid;
+  const yamlExportBlocked = yamlHasDraftChanges || yamlHasValidationErrors;
+  const yamlExportBlockedReason = yamlHasDraftChanges
+    ? "YAML 有未应用草稿，请先应用到 JSON 或重置"
+    : yamlHasValidationErrors
+      ? "YAML 校验未通过，请先修复错误"
+      : "";
+  const canApplyYaml = yamlText.trim().length > 0 && !yamlValidating;
+  const canResetYaml = lastAppliedYamlText.length > 0 && yamlHasDraftChanges;
   const displayMessage = generateState === "loading" ? `生成中...(${generationElapsedSeconds}s)` : message;
 
   useEffect(() => {
@@ -180,6 +191,33 @@ export function WorkbenchShell() {
     return () => window.clearInterval(timerId);
   }, [generateState, generationStartedAt]);
 
+  function summarizeValidationIssues(result: ValidationResult): string {
+    const issues = result.errors.length ? result.errors : result.warnings;
+    return issues
+      .slice(0, 3)
+      .map((issue) => `${issue.path || "root"}: ${issue.message}`)
+      .join("；");
+  }
+
+  async function requestYamlValidation(): Promise<ValidationResult> {
+    const response = await fetch("/api/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ yamlText }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => null) as { error?: string } | null;
+      throw new Error(data?.error ?? "YAML 校验请求失败");
+    }
+    return (await response.json()) as ValidationResult;
+  }
+
+  function messageForValidationResult(result: ValidationResult): string {
+    if (result.valid && result.status === "pass") return "YAML 校验通过，可以应用或导出";
+    if (result.valid) return `YAML 校验通过但存在 ${result.warnings.length} 条警告：${summarizeValidationIssues(result)}`;
+    return `YAML 校验失败：${summarizeValidationIssues(result) || `${result.errors.length} 条错误`}`;
+  }
+
   function buildWorkspaceState(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
     return {
       schema_version: "1.1",
@@ -189,6 +227,7 @@ export function WorkbenchShell() {
       result: currentDocument,
       resultSource,
       yamlText,
+      lastAppliedYamlText,
       yamlValidation,
       repairResult,
       generationDiagnostics,
@@ -207,7 +246,9 @@ export function WorkbenchShell() {
     setTone(state.request.target.tone);
     setDuration(state.request.target.target_duration_minutes);
     setResultText(state.result ? jsonPreview(state.result) : EMPTY_RESULT_TEXT);
-    setYamlText(state.yamlText || (state.result ? documentToYaml(state.result) : ""));
+    const restoredYamlText = state.yamlText || (state.result ? documentToYaml(state.result) : "");
+    setYamlText(restoredYamlText);
+    setLastAppliedYamlText(state.lastAppliedYamlText ?? restoredYamlText);
     setYamlValidation(state.yamlValidation as ValidationResult | null);
     setRepairResult(state.repairResult as RepairResult | null);
     setGenerationDiagnostics(state.generationDiagnostics as GenerationDiagnostic[]);
@@ -428,8 +469,10 @@ export function WorkbenchShell() {
         throw new Error(data.error ?? "AI 没有返回可展示的剧本草稿");
       }
 
+      const nextYamlText = data.scriptYaml ?? documentToYaml(data.document);
       setResultText(jsonPreview(data.document));
-      setYamlText(data.scriptYaml ?? documentToYaml(data.document));
+      setYamlText(nextYamlText);
+      setLastAppliedYamlText(nextYamlText);
       setYamlValidation(data.validation ?? null);
       setGenerationDiagnostics(data.diagnostics ?? []);
       setGenerateState(data.status === "needs_revision" ? "needs_revision" : "success");
@@ -442,7 +485,8 @@ export function WorkbenchShell() {
         await saveCurrentWorkspaceState({
           result: data.document,
           resultSource: source,
-          yamlText: data.scriptYaml ?? documentToYaml(data.document),
+          yamlText: nextYamlText,
+          lastAppliedYamlText: nextYamlText,
           yamlValidation: data.validation ?? null,
           generationDiagnostics: data.diagnostics ?? [],
           generationError: "",
@@ -468,10 +512,12 @@ export function WorkbenchShell() {
       return;
     }
 
-    setYamlText(documentToYaml(currentDocument));
+    const nextYamlText = documentToYaml(currentDocument);
+    setYamlText(nextYamlText);
+    setLastAppliedYamlText(nextYamlText);
     setYamlValidation(null);
     setHasUnsavedState(true);
-    setMessage("已生成 YAML，可编辑后重新校验或直接导出");
+    setMessage("已从当前 JSON 重新生成 YAML，可编辑后应用回剧本");
   }
 
   async function handleYamlRevalidate() {
@@ -483,27 +529,66 @@ export function WorkbenchShell() {
     setYamlValidating(true);
     setMessage("正在校验 YAML");
     try {
-      const response = await fetch("/api/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ yamlText }),
-      });
-      const result = (await response.json()) as ValidationResult;
+      const result = await requestYamlValidation();
       setYamlValidation(result);
       setHasUnsavedState(true);
-      if (result.valid) {
-        setMessage("YAML 校验通过，可以导出");
-      } else if (result.status === "warn") {
-        setMessage(`YAML 校验通过但存在 ${result.warnings.length} 条警告`);
-      } else {
-        setMessage(`YAML 校验失败：${result.errors.length} 条错误`);
-      }
-    } catch {
-      setMessage("YAML 校验请求失败");
+      setMessage(messageForValidationResult(result));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setMessage(`YAML 校验请求失败：${errorMessage}`);
       setYamlValidation(null);
     } finally {
       setYamlValidating(false);
     }
+  }
+
+  async function handleApplyYamlToJson() {
+    if (!yamlText.trim()) {
+      setMessage("YAML 内容为空，无法应用");
+      return;
+    }
+
+    setYamlValidating(true);
+    setMessage("正在校验并应用 YAML");
+    try {
+      const result = await requestYamlValidation();
+      setYamlValidation(result);
+      if (!result.valid) {
+        setMessage(messageForValidationResult(result));
+        return;
+      }
+
+      const nextDocument = yamlToDocument(yamlText);
+      if (!nextDocument) {
+        setMessage("YAML 结构无法转换为 ScriptForgeDocument：缺少 script 根节点或 schema_version");
+        return;
+      }
+
+      setResultText(jsonPreview(nextDocument));
+      setLastAppliedYamlText(yamlText);
+      setResultSource("manual");
+      setRepairResult(null);
+      setHasUnsavedState(true);
+      setMessage(result.status === "warn" ? messageForValidationResult(result) : "YAML 已应用到页面剧本与 JSON");
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setMessage(`YAML 应用失败：${errorMessage}`);
+      setYamlValidation(null);
+    } finally {
+      setYamlValidating(false);
+    }
+  }
+
+  function handleResetYamlDraft() {
+    if (!lastAppliedYamlText) {
+      setMessage("没有可恢复的上一次已应用 YAML");
+      return;
+    }
+
+    setYamlText(lastAppliedYamlText);
+    setYamlValidation(null);
+    setHasUnsavedState(true);
+    setMessage("已恢复到上一次已应用的 YAML 内容");
   }
 
   async function handleAutoRepair() {
@@ -584,6 +669,7 @@ export function WorkbenchShell() {
 
       setResultText(jsonPreview(data.document));
       setYamlText(yaml);
+      setLastAppliedYamlText(yaml);
       setYamlValidation(data.validation ?? null);
       setGenerationDiagnostics(data.diagnostics ?? []);
       setGenerateState(data.status === "needs_revision" ? "needs_revision" : "success");
@@ -619,6 +705,9 @@ export function WorkbenchShell() {
     const repairedYaml = repairResult.yamlText ?? documentToYaml(repairResult.document);
     setResultText(jsonPreview(repairResult.document));
     setYamlText(repairedYaml);
+    setLastAppliedYamlText(repairedYaml);
+    setYamlValidation(null);
+    setResultSource("repair");
     setRepairResult(null);
     setHasUnsavedState(true);
     setMessage("修复结果已应用，正在重新校验 YAML");
@@ -647,8 +736,8 @@ export function WorkbenchShell() {
       return;
     }
 
-    if (formatName === "yaml" && yamlExportBlocked) {
-      setMessage("导出已阻止：YAML 校验未通过，请先修复错误");
+    if (yamlExportBlocked) {
+      setMessage(`导出已阻止：${yamlExportBlockedReason}`);
       return;
     }
 
@@ -658,7 +747,7 @@ export function WorkbenchShell() {
 
     switch (formatName) {
       case "yaml":
-        content = yamlText || documentToYaml(currentDocument);
+        content = lastAppliedYamlText || documentToYaml(currentDocument);
         filename = generateYamlFilename(currentDocument.script.title);
         mimeType = "application/x-yaml";
         break;
@@ -692,7 +781,12 @@ export function WorkbenchShell() {
       return;
     }
 
-    const yaml = yamlText || documentToYaml(currentDocument);
+    if (yamlExportBlocked) {
+      setMessage(`复制已阻止：${yamlExportBlockedReason}`);
+      return;
+    }
+
+    const yaml = lastAppliedYamlText || documentToYaml(currentDocument);
     try {
       await navigator.clipboard.writeText(yaml);
       setMessage("YAML 已复制到剪贴板");
@@ -814,6 +908,7 @@ export function WorkbenchShell() {
               repairing={repairing}
               needsRevision={generateState === "needs_revision"}
               exportBlocked={yamlExportBlocked}
+              exportBlockedReason={yamlExportBlockedReason}
               onRepair={() => void handleAutoRepair()}
               onApplyRepair={() => void handleApplyRepair()}
             />
@@ -830,7 +925,10 @@ export function WorkbenchShell() {
               validation={yamlValidation}
               validating={yamlValidating}
               canExport={canExport}
+              canApplyYaml={canApplyYaml}
+              canResetYaml={canResetYaml}
               exportBlocked={yamlExportBlocked}
+              exportBlockedReason={yamlExportBlockedReason}
               onYamlChange={(value) => {
                 setYamlText(value);
                 setYamlValidation(null);
@@ -838,6 +936,8 @@ export function WorkbenchShell() {
               }}
               onConvertToYaml={handleConvertToYaml}
               onRevalidate={() => void handleYamlRevalidate()}
+              onApplyYamlToJson={() => void handleApplyYamlToJson()}
+              onResetYamlDraft={handleResetYamlDraft}
               onCopyYaml={() => void handleCopyYaml()}
               onDownload={handleDownload}
             />

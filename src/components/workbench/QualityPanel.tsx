@@ -8,6 +8,7 @@ type QualityPanelProps = {
   repairing: boolean;
   needsRevision: boolean;
   exportBlocked: boolean;
+  exportBlockedReason: string;
   onRepair: () => void;
   onApplyRepair: () => void;
 };
@@ -18,6 +19,7 @@ export function QualityPanel({
   repairing,
   needsRevision,
   exportBlocked,
+  exportBlockedReason,
   onRepair,
   onApplyRepair,
 }: QualityPanelProps) {
@@ -57,7 +59,7 @@ export function QualityPanel({
         <div className="rounded-md border border-zinc-200 p-3">
           <div className="font-medium">导出</div>
           <div className={exportBlocked ? "mt-1 text-red-700" : "mt-1 text-emerald-700"}>
-            {exportBlocked ? "导出已阻止" : "可继续处理"}
+            {exportBlocked ? `导出已阻止：${exportBlockedReason}` : "可继续处理"}
           </div>
         </div>
       </div>

@@ -149,6 +149,7 @@ function normalizeWorkspaceState(input: unknown, now = new Date().toISOString())
     result,
     resultSource: normalizeResultSource(candidate.resultSource),
     yamlText: typeof candidate.yamlText === "string" ? candidate.yamlText : "",
+    lastAppliedYamlText: typeof candidate.lastAppliedYamlText === "string" ? candidate.lastAppliedYamlText : typeof candidate.yamlText === "string" ? candidate.yamlText : "",
     yamlValidation: candidate.yamlValidation ?? null,
     repairResult: candidate.repairResult ?? null,
     generationDiagnostics: Array.isArray(candidate.generationDiagnostics) ? candidate.generationDiagnostics : [],
