@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { normalizeRawNovelInput } from "@/lib/input";
 import { generateScriptForgeDocument, normalizeGenerationRequest, normalizeTargetDuration } from "@/lib/generation/generate";
-import { getWorkspace, saveWorkspaceResult } from "@/lib/workspace-data";
+import { getWorkspace } from "@/lib/workspace-data";
 import { documentToYaml } from "@/lib/yaml";
 import type { GenerationRequest } from "@/types/scriptforge";
 
@@ -12,7 +12,6 @@ type GenerateBody = {
   sourceText?: unknown;
   request?: unknown;
   target?: unknown;
-  persist?: unknown;
 };
 
 function buildRequestFromSource(body: GenerateBody): GenerationRequest | null {
@@ -68,10 +67,6 @@ export async function POST(request: Request) {
     const resolved = await resolveGenerationRequest(body);
     const result = await generateScriptForgeDocument(resolved.request);
     const workspaceId = resolved.workspaceId ?? (typeof body.workspaceId === "string" ? body.workspaceId : undefined);
-
-    if (workspaceId && body.persist === true) {
-      await saveWorkspaceResult(workspaceId, { result: result.document });
-    }
 
     return NextResponse.json({
       document: result.document,

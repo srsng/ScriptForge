@@ -148,3 +148,21 @@ export type ScriptForgeScript = {
 export type ScriptForgeDocument = {
   script: ScriptForgeScript;
 };
+
+export type WorkspaceResultSource = "none" | "ai" | "fallback" | "repair" | "manual";
+
+export type WorkspaceState = {
+  schema_version: "1.0";
+  title: string;
+  rawText: string;
+  request: GenerationRequest;
+  result: ScriptForgeDocument | null;
+  resultSource: WorkspaceResultSource;
+  yamlText: string;
+  yamlValidation: unknown | null;
+  repairResult: unknown | null;
+  generationDiagnostics: unknown[];
+  generationError: string;
+  message: string;
+  updated_at: string;
+};
