@@ -18,6 +18,7 @@ import type {
   InputNormalizationResult,
   ScriptForgeDocument,
   ScriptFormat,
+  WorkspaceState,
 } from "@/types/scriptforge";
 import { AdaptationReportPanel } from "./AdaptationReportPanel";
 import { GenerationPanel } from "./GenerationPanel";
@@ -39,6 +40,7 @@ type WorkspaceRecord = WorkspaceIndexEntry & {
   chapterText: string;
   normalization: InputNormalizationResult;
   result: ScriptForgeDocument | null;
+  state: WorkspaceState;
 };
 
 type SampleResponse = {
@@ -89,6 +91,7 @@ export function WorkbenchShell() {
   const [yamlValidating, setYamlValidating] = useState(false);
   const [repairResult, setRepairResult] = useState<RepairResult | null>(null);
   const [repairing, setRepairing] = useState(false);
+  const [hasUnsavedState, setHasUnsavedState] = useState(false);
 
   const normalization = useMemo(() => normalizeRawNovelInput(rawInput), [rawInput]);
   const currentDocument = useMemo(() => parseDocumentJson(resultText), [resultText]);
@@ -104,6 +107,43 @@ export function WorkbenchShell() {
   const canGenerate = normalization.isValid && generateState !== "loading";
   const canExport = currentDocument !== null;
   const yamlExportBlocked = yamlValidation !== null && !yamlValidation.valid;
+
+  function buildWorkspaceState(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
+    return {
+      schema_version: "1.0",
+      title,
+      rawText: rawInput,
+      request: currentGenerationRequest,
+      result: currentDocument,
+      resultSource,
+      yamlText,
+      yamlValidation,
+      repairResult,
+      generationDiagnostics,
+      generationError,
+      message,
+      updated_at: new Date().toISOString(),
+      ...overrides,
+    };
+  }
+
+  function applyWorkspaceState(state: WorkspaceState) {
+    setRawInput(state.rawText);
+    setTitle(state.title);
+    setFormat(state.request.target.format);
+    setGenre(state.request.target.genre);
+    setTone(state.request.target.tone);
+    setDuration(state.request.target.target_duration_minutes);
+    setResultText(state.result ? jsonPreview(state.result) : EMPTY_RESULT_TEXT);
+    setYamlText(state.yamlText || (state.result ? documentToYaml(state.result) : ""));
+    setYamlValidation(state.yamlValidation as ValidationResult | null);
+    setRepairResult(state.repairResult as RepairResult | null);
+    setGenerationDiagnostics(state.generationDiagnostics as GenerationDiagnostic[]);
+    setGenerationError(state.generationError);
+    setResultSource(state.resultSource);
+    setMessage(state.message || "已恢复工作区");
+    setHasUnsavedState(false);
+  }
 
   async function fetchWorkspaceList() {
     const response = await fetch("/api/workspaces");
@@ -135,25 +175,18 @@ export function WorkbenchShell() {
     setYamlValidation(null);
     setRepairResult(null);
     setResultSource("none");
+    setHasUnsavedState(true);
     setMessage(`已载入 ${sample.normalization.chapters.length} 章公开来源样本`);
   }
 
   async function saveWorkspace() {
     setSaveState("saving");
     setMessage("正在保存工作区");
+    const state = buildWorkspaceState();
     const response = await fetch("/api/workspaces", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title,
-        rawText: rawInput,
-        target: {
-          format,
-          genre,
-          tone,
-          target_duration_minutes: duration,
-        },
-      }),
+      body: JSON.stringify({ state }),
     });
     const data = await response.json();
     if (!response.ok) {
@@ -164,12 +197,10 @@ export function WorkbenchShell() {
 
     const workspace = data as WorkspaceRecord;
     setActiveWorkspace(workspace);
-    setResultText(workspace.result ? jsonPreview(workspace.result) : EMPTY_RESULT_TEXT);
-    setYamlText(workspace.result ? documentToYaml(workspace.result) : "");
-    setYamlValidation(null);
-    setResultSource(workspace.result ? "manual" : "none");
+    applyWorkspaceState(workspace.state);
     await refreshWorkspaces();
     setSaveState("saved");
+    setHasUnsavedState(false);
     setMessage(`已保存 ${workspace.id}`);
   }
 
@@ -184,18 +215,36 @@ export function WorkbenchShell() {
 
     const workspace = data as WorkspaceRecord;
     setActiveWorkspace(workspace);
-    setRawInput(workspace.chapterText);
-    setTitle(workspace.title);
-    setFormat(workspace.request.target.format);
-    setGenre(workspace.request.target.genre);
-    setTone(workspace.request.target.tone);
-    setDuration(workspace.request.target.target_duration_minutes);
-    setResultText(workspace.result ? jsonPreview(workspace.result) : EMPTY_RESULT_TEXT);
-    setYamlText(workspace.result ? documentToYaml(workspace.result) : "");
-    setYamlValidation(null);
-    setRepairResult(null);
-    setResultSource(workspace.result ? "manual" : "none");
+    applyWorkspaceState(workspace.state);
     setMessage(`已加载 ${workspace.id}`);
+  }
+
+  async function saveCurrentWorkspaceState(overrides: Partial<WorkspaceState> = {}) {
+    if (!activeWorkspace) {
+      setMessage("请先保存或加载工作区，再保存当前状态");
+      return;
+    }
+
+    setSaveState("saving");
+    const state = buildWorkspaceState(overrides);
+    const response = await fetch(`/api/workspaces/${encodeURIComponent(activeWorkspace.id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      setSaveState("error");
+      setMessage(data.error ?? "状态保存失败");
+      return;
+    }
+
+    const workspace = data as WorkspaceRecord;
+    setActiveWorkspace(workspace);
+    setSaveState("saved");
+    setHasUnsavedState(false);
+    await refreshWorkspaces();
+    setMessage(`当前状态已保存到 ${workspace.id}`);
   }
 
   async function generateDraft() {
@@ -208,7 +257,6 @@ export function WorkbenchShell() {
     const payload = {
       request: currentGenerationRequest,
       workspaceId: activeWorkspace?.id,
-      persist: Boolean(activeWorkspace),
     };
 
     try {
@@ -230,13 +278,18 @@ export function WorkbenchShell() {
       setGenerateState("done");
       setResultSource(data.usedFallback ? "fallback" : "ai");
       if (activeWorkspace) {
-        setActiveWorkspace({
-          ...activeWorkspace,
+        const source = data.usedFallback ? "fallback" : "ai";
+        await saveCurrentWorkspaceState({
           result: data.document,
-          result_path: activeWorkspace.result_path ?? `${activeWorkspace.id}/result.json`,
-          updated_at: new Date().toISOString(),
+          resultSource: source,
+          yamlText: data.scriptYaml ?? documentToYaml(data.document),
+          yamlValidation: data.validation ?? null,
+          generationDiagnostics: data.diagnostics ?? [],
+          generationError: "",
+          message: data.usedFallback ? "已生成 fallback 降级剧本初稿" : "已生成 AI 剧本初稿",
         });
-        await refreshWorkspaces();
+      } else {
+        setHasUnsavedState(true);
       }
       setMessage(data.usedFallback ? "已生成 fallback 降级剧本初稿" : "已生成 AI 剧本初稿");
     } catch (error) {
@@ -252,6 +305,7 @@ export function WorkbenchShell() {
     setYamlValidation(null);
     setRepairResult(null);
     setResultSource(value.trim() ? "manual" : "none");
+    setHasUnsavedState(true);
   }
 
   function handleConvertToYaml() {
@@ -262,6 +316,7 @@ export function WorkbenchShell() {
 
     setYamlText(documentToYaml(currentDocument));
     setYamlValidation(null);
+    setHasUnsavedState(true);
     setMessage("已生成 YAML，可编辑后重新校验或直接导出");
   }
 
@@ -281,6 +336,7 @@ export function WorkbenchShell() {
       });
       const result = (await response.json()) as ValidationResult;
       setYamlValidation(result);
+      setHasUnsavedState(true);
       if (result.valid) {
         setMessage("YAML 校验通过，可以导出");
       } else if (result.status === "warn") {
@@ -314,6 +370,7 @@ export function WorkbenchShell() {
       });
       const result = (await response.json()) as RepairResult;
       setRepairResult(result);
+      setHasUnsavedState(true);
 
       if (result.status === "ok") {
         setMessage(`自动修复完成：${result.appliedFixes.length} 项修复已应用`);
@@ -338,6 +395,7 @@ export function WorkbenchShell() {
     setYamlValidation(null);
     setResultSource("repair");
     setRepairResult(null);
+    setHasUnsavedState(true);
     setMessage("修复结果已应用，建议重新校验 YAML");
   }
 
@@ -412,6 +470,19 @@ export function WorkbenchShell() {
               <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
                 载入章节、调整偏好、生成剧本、查看质量状态、理解来源追踪与改编报告，并导出可继续打磨的 YAML。
               </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:bg-zinc-300"
+                  disabled={!activeWorkspace || saveState === "saving"}
+                  onClick={() => void saveCurrentWorkspaceState()}
+                  type="button"
+                >
+                  {saveState === "saving" ? "保存中..." : "保存当前状态"}
+                </button>
+                <span className={hasUnsavedState ? "text-sm font-medium text-amber-700" : "text-sm text-emerald-700"}>
+                  {activeWorkspace ? (hasUnsavedState ? "有未保存状态" : "状态已保存") : "未保存工作区"}
+                </span>
+              </div>
             </div>
             <div className="grid gap-2 text-sm sm:grid-cols-3 lg:w-[34rem]">
               <StatusTile label="Message" value={message} tone="text-emerald-700" />
@@ -429,11 +500,26 @@ export function WorkbenchShell() {
               genre={genre}
               tone={tone}
               duration={duration}
-              onTitleChange={setTitle}
-              onFormatChange={setFormat}
-              onGenreChange={setGenre}
-              onToneChange={setTone}
-              onDurationChange={setDuration}
+              onTitleChange={(value) => {
+                setTitle(value);
+                setHasUnsavedState(true);
+              }}
+              onFormatChange={(value) => {
+                setFormat(value);
+                setHasUnsavedState(true);
+              }}
+              onGenreChange={(value) => {
+                setGenre(value);
+                setHasUnsavedState(true);
+              }}
+              onToneChange={(value) => {
+                setTone(value);
+                setHasUnsavedState(true);
+              }}
+              onDurationChange={(value) => {
+                setDuration(value);
+                setHasUnsavedState(true);
+              }}
             />
 
             <InputPanel
@@ -442,7 +528,10 @@ export function WorkbenchShell() {
               sampleMeta={sampleMeta}
               saveDisabled={!normalization.isValid || saveState === "saving"}
               saving={saveState === "saving"}
-              onRawInputChange={setRawInput}
+              onRawInputChange={(value) => {
+                setRawInput(value);
+                setHasUnsavedState(true);
+              }}
               onLoadSample={() => void loadPublicDomainSample()}
               onSaveWorkspace={() => void saveWorkspace()}
             />
@@ -477,6 +566,7 @@ export function WorkbenchShell() {
               onYamlChange={(value) => {
                 setYamlText(value);
                 setYamlValidation(null);
+                setHasUnsavedState(true);
               }}
               onConvertToYaml={handleConvertToYaml}
               onRevalidate={() => void handleYamlRevalidate()}

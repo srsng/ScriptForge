@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { chaptersToPlainText, normalizeRawNovelInput } from "@/lib/input";
-import type { GenerationRequest, InputNormalizationResult, ScriptForgeDocument } from "@/types/scriptforge";
+import { normalizeRawNovelInput } from "@/lib/input";
+import type { GenerationRequest, InputNormalizationResult, ScriptForgeDocument, WorkspaceResultSource, WorkspaceState } from "@/types/scriptforge";
 
 const DATA_ROOT = path.join(process.cwd(), "data", "workspaces");
 const INDEX_FILE = path.join(DATA_ROOT, "index.json");
@@ -13,8 +13,7 @@ export type WorkspaceIndexEntry = {
   created_at: string;
   updated_at: string;
   chapter_count: number;
-  request_path: string;
-  result_path?: string;
+  state_path: string;
 };
 
 export type WorkspaceRecord = WorkspaceIndexEntry & {
@@ -22,17 +21,15 @@ export type WorkspaceRecord = WorkspaceIndexEntry & {
   chapterText: string;
   normalization: InputNormalizationResult;
   result: ScriptForgeDocument | null;
+  state: WorkspaceState;
 };
 
 export type CreateWorkspaceInput = {
-  title?: string;
-  rawText: string;
-  target?: Partial<GenerationRequest["target"]>;
-  result?: unknown;
+  state?: unknown;
 };
 
-export type SaveWorkspaceResultInput = {
-  result: unknown;
+export type SaveWorkspaceStateInput = {
+  state: unknown;
 };
 
 export type WorkspaceWriteResult =
@@ -98,25 +95,18 @@ function createWorkspaceId(now = new Date()): string {
   return `ws_${stamp}_${suffix}`;
 }
 
-function defaultTarget(target?: Partial<GenerationRequest["target"]>): GenerationRequest["target"] {
-  return {
-    format: target?.format ?? "short_drama",
-    genre: target?.genre?.trim() || "未指定",
-    target_duration_minutes: target?.target_duration_minutes ?? 12,
-    tone: target?.tone?.trim() || "未指定",
-  };
+function normalizeResultSource(value: unknown): WorkspaceResultSource {
+  return value === "ai" || value === "fallback" || value === "repair" || value === "manual" || value === "none"
+    ? value
+    : "none";
 }
 
 function validateScriptForgeDocument(value: unknown): ScriptForgeDocument | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
+  if (!value || typeof value !== "object") return null;
 
   const doc = value as Partial<ScriptForgeDocument>;
   const script = doc.script;
-  if (!script || typeof script !== "object") {
-    return null;
-  }
+  if (!script || typeof script !== "object") return null;
 
   if (
     typeof script.title !== "string" ||
@@ -131,10 +121,58 @@ function validateScriptForgeDocument(value: unknown): ScriptForgeDocument | null
   return value as ScriptForgeDocument;
 }
 
+function normalizeWorkspaceState(input: unknown, now = new Date().toISOString()): WorkspaceState | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+
+  const candidate = input as Record<string, unknown>;
+  const request = candidate.request && typeof candidate.request === "object"
+    ? candidate.request as GenerationRequest
+    : null;
+  if (!request || !Array.isArray(request.chapters)) return null;
+
+  const rawText = typeof candidate.rawText === "string"
+    ? candidate.rawText
+    : request.chapters.map((chapter) => `# ${chapter.title}\n${chapter.content.trim()}`).join("\n\n");
+  const normalization = normalizeRawNovelInput(rawText);
+  if (!normalization.isValid) return null;
+
+  const result = candidate.result === null || candidate.result === undefined
+    ? null
+    : validateScriptForgeDocument(candidate.result);
+  if (candidate.result !== null && candidate.result !== undefined && !result) return null;
+
+  return {
+    schema_version: "1.0",
+    title: typeof candidate.title === "string" && candidate.title.trim() ? candidate.title.trim() : request.chapters[0]?.title ?? "Untitled workspace",
+    rawText,
+    request,
+    result,
+    resultSource: normalizeResultSource(candidate.resultSource),
+    yamlText: typeof candidate.yamlText === "string" ? candidate.yamlText : "",
+    yamlValidation: candidate.yamlValidation ?? null,
+    repairResult: candidate.repairResult ?? null,
+    generationDiagnostics: Array.isArray(candidate.generationDiagnostics) ? candidate.generationDiagnostics : [],
+    generationError: typeof candidate.generationError === "string" ? candidate.generationError : "",
+    message: typeof candidate.message === "string" ? candidate.message : "已恢复工作区",
+    updated_at: now,
+  };
+}
+
 async function upsertEntry(entry: WorkspaceIndexEntry): Promise<void> {
   const entries = await readIndex();
   const nextEntries = [entry, ...entries.filter((item) => item.id !== entry.id)];
   await writeIndex(nextEntries);
+}
+
+function workspaceRecordFromEntry(entry: WorkspaceIndexEntry, state: WorkspaceState): WorkspaceRecord {
+  return {
+    ...entry,
+    request: state.request,
+    chapterText: state.rawText,
+    normalization: normalizeRawNovelInput(state.rawText),
+    result: state.result,
+    state,
+  };
 }
 
 export async function listWorkspaces(): Promise<WorkspaceIndexEntry[]> {
@@ -142,100 +180,70 @@ export async function listWorkspaces(): Promise<WorkspaceIndexEntry[]> {
 }
 
 export async function createWorkspace(input: CreateWorkspaceInput): Promise<WorkspaceWriteResult> {
-  const rawText = typeof input.rawText === "string" ? input.rawText : "";
-  const normalization = normalizeRawNovelInput(rawText);
-
-  if (!normalization.isValid) {
-    return {
-      ok: false,
-      status: 400,
-      error: "Input must contain at least three valid chapters before a workspace can be saved.",
-      normalization,
-    };
-  }
-
   const now = new Date().toISOString();
+  const state = normalizeWorkspaceState(input.state, now);
+  if (!state) {
+    return { ok: false, status: 400, error: "State must contain a valid WorkspaceState with at least three chapters." };
+  }
+
   const id = createWorkspaceId();
-  const request: GenerationRequest = {
-    chapters: normalization.chapters,
-    target: defaultTarget(input.target),
-  };
-  const result = input.result === undefined ? null : validateScriptForgeDocument(input.result);
-
-  if (input.result !== undefined && !result) {
-    return { ok: false, status: 400, error: "Result must be a ScriptForgeDocument with script.schema_version === '1.0'." };
-  }
-
-  const dir = workspaceDir(id);
-  const requestPath = `${id}/request.json`;
-  const resultPath = result ? `${id}/result.json` : undefined;
-  await mkdir(dir, { recursive: true });
-  await writeJsonAtomic(path.join(dir, "request.json"), request);
-  if (result) {
-    await writeJsonAtomic(path.join(dir, "result.json"), result);
-  }
-
+  const statePath = `${id}/state.json`;
   const entry: WorkspaceIndexEntry = {
     id,
-    title: input.title?.trim() || request.chapters[0]?.title || "Untitled workspace",
+    title: state.title,
     created_at: now,
     updated_at: now,
-    chapter_count: request.chapters.length,
-    request_path: requestPath,
-    result_path: resultPath,
+    chapter_count: state.request.chapters.length,
+    state_path: statePath,
   };
 
+  await writeJsonAtomic(path.join(workspaceDir(id), "state.json"), state);
   await upsertEntry(entry);
-  return { ok: true, workspace: await getWorkspace(id) as WorkspaceRecord };
+  return { ok: true, workspace: workspaceRecordFromEntry(entry, state) };
 }
 
 export async function getWorkspace(id: string): Promise<WorkspaceRecord | null> {
   assertSafeWorkspaceId(id);
   const entries = await readIndex();
   const entry = entries.find((item) => item.id === id);
-  if (!entry) {
-    return null;
+  if (!entry) return null;
+
+  const state = normalizeWorkspaceState(
+    await readJsonFile<WorkspaceState>(dataPath(entry.state_path)),
+    entry.updated_at,
+  );
+  if (!state) {
+    throw new Error("Workspace state is invalid.");
   }
 
-  const request = await readJsonFile<GenerationRequest>(dataPath(entry.request_path));
-  let result: ScriptForgeDocument | null = null;
-  if (entry.result_path) {
-    try {
-      result = await readJsonFile<ScriptForgeDocument>(dataPath(entry.result_path));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw error;
-      }
-    }
-  }
-
-  const chapterText = chaptersToPlainText(request.chapters);
-  return {
-    ...entry,
-    request,
-    chapterText,
-    normalization: normalizeRawNovelInput(chapterText),
-    result,
-  };
+  return workspaceRecordFromEntry(entry, state);
 }
 
-export async function saveWorkspaceResult(id: string, input: SaveWorkspaceResultInput): Promise<WorkspaceWriteResult> {
+export async function saveWorkspaceState(id: string, input: SaveWorkspaceStateInput): Promise<WorkspaceWriteResult> {
   assertSafeWorkspaceId(id);
-  const result = validateScriptForgeDocument(input.result);
-  if (!result) {
-    return { ok: false, status: 400, error: "Result must be a ScriptForgeDocument with script.schema_version === '1.0'." };
-  }
-
   const entries = await readIndex();
   const entry = entries.find((item) => item.id === id);
   if (!entry) {
     return { ok: false, status: 404, error: "Workspace not found." };
   }
 
-  const resultPath = `${id}/result.json`;
-  await writeJsonAtomic(path.join(workspaceDir(id), "result.json"), result);
-  await upsertEntry({ ...entry, updated_at: new Date().toISOString(), result_path: resultPath });
-  return { ok: true, workspace: await getWorkspace(id) as WorkspaceRecord };
+  const now = new Date().toISOString();
+  const state = normalizeWorkspaceState(input.state, now);
+  if (!state) {
+    return { ok: false, status: 400, error: "State must contain a valid WorkspaceState with at least three chapters." };
+  }
+
+  const nextEntry: WorkspaceIndexEntry = {
+    ...entry,
+    title: state.title,
+    updated_at: now,
+    chapter_count: state.request.chapters.length,
+    state_path: `${id}/state.json`,
+  };
+
+  await writeJsonAtomic(path.join(workspaceDir(id), "state.json"), state);
+  await upsertEntry(nextEntry);
+  return { ok: true, workspace: workspaceRecordFromEntry(nextEntry, state) };
 }
 
 export const workspaceDataRoot = DATA_ROOT;
