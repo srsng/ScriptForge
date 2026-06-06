@@ -1,13 +1,11 @@
 import type { ValidationResult } from "@/lib/schema";
 import type { RepairResult } from "@/lib/repair";
-import type { ResultSource } from "./utils";
-import { resultSourceLabel, validationSummary } from "./utils";
+import { validationSummary } from "./utils";
 
 type QualityPanelProps = {
   validation: ValidationResult | null;
   repairResult: RepairResult | null;
   repairing: boolean;
-  resultSource: ResultSource;
   needsRevision: boolean;
   exportBlocked: boolean;
   onRepair: () => void;
@@ -18,7 +16,6 @@ export function QualityPanel({
   validation,
   repairResult,
   repairing,
-  resultSource,
   needsRevision,
   exportBlocked,
   onRepair,
@@ -37,7 +34,7 @@ export function QualityPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">质量状态</h2>
-          <p className="text-sm text-zinc-600">汇总 Schema 校验、自动修复和剧本质量门禁结果。</p>
+          <p className="text-sm text-zinc-600">汇总 Schema 校验、引用问题、剧本质量门禁和导出状态。</p>
         </div>
         <button
           className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:bg-zinc-300"
@@ -45,18 +42,17 @@ export function QualityPanel({
           onClick={onRepair}
           type="button"
         >
-          {repairing ? "修复中..." : "自动修复"}
+          {repairing ? "检查中..." : "检查可自动修复项"}
         </button>
       </div>
+      <p className="mt-2 text-sm text-zinc-600">
+        自动修复只处理缺失字段、轻量类型问题和可确定的引用替换；不会改写剧情。检查后请先预览，再决定是否应用。
+      </p>
 
-      <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">
+      <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
         <div className="rounded-md border border-zinc-200 p-3">
           <div className="font-medium">校验</div>
           <div className={`mt-1 ${validationTone}`}>{validationSummary(validation)}</div>
-        </div>
-        <div className="rounded-md border border-zinc-200 p-3">
-          <div className="font-medium">来源</div>
-          <div className="mt-1 text-zinc-600">{resultSourceLabel(resultSource)}</div>
         </div>
         <div className="rounded-md border border-zinc-200 p-3">
           <div className="font-medium">导出</div>
@@ -101,9 +97,12 @@ export function QualityPanel({
       {repairResult ? (
         <div className={`mt-4 rounded-md border p-3 text-sm ${repairResult.status === "ok" ? "border-emerald-200 bg-emerald-50" : repairResult.status === "partial" ? "border-amber-200 bg-amber-50" : "border-red-200 bg-red-50"}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="font-semibold">repair 结果：{repairResult.status}</p>
+            <p className="font-semibold">修复预览：{repairResult.status}</p>
             <span className="text-xs text-zinc-600">{repairResult.appliedFixes.length} 项修复</span>
           </div>
+          {repairResult.appliedFixes.length === 0 ? (
+            <p className="mt-2 text-zinc-700">没有发现可自动应用的修复项。请根据错误信息手动处理，或重新生成草稿。</p>
+          ) : null}
           {repairResult.appliedFixes.length > 0 ? (
             <ul className="mt-2 list-inside list-disc space-y-1 text-zinc-700">
               {repairResult.appliedFixes.map((fix, index) => (
@@ -122,9 +121,9 @@ export function QualityPanel({
               ))}
             </ul>
           ) : null}
-          {repairResult.document ? (
+          {repairResult.document && repairResult.appliedFixes.length > 0 ? (
             <button className="mt-3 rounded-md bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-700" onClick={onApplyRepair} type="button">
-              应用修复结果
+              应用 {repairResult.appliedFixes.length} 项修复
             </button>
           ) : null}
         </div>

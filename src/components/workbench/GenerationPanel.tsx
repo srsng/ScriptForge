@@ -23,8 +23,6 @@ type GenerationPanelProps = {
   onGenerate: () => void;
 };
 
-const stageLabels = ["输入", "生成", "校验", "repair", "导出"] as const;
-
 function generateStateLabel(state: GenerateState): string {
   switch (state) {
     case "loading":
@@ -70,15 +68,6 @@ export function GenerationPanel({
         >
           {generateState === "loading" ? loadingLabel : "AI 生成剧本初稿"}
         </button>
-      </div>
-
-      <div className="mt-4 grid gap-2 sm:grid-cols-5">
-        {stageLabels.map((stage, index) => (
-          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm" key={stage}>
-            <div className="text-xs font-medium text-zinc-500">Step {index + 1}</div>
-            <div className="mt-1 font-medium">{stage}</div>
-          </div>
-        ))}
       </div>
 
       <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">

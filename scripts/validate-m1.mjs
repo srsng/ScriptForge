@@ -216,7 +216,7 @@ async function runStaticChecks() {
     sources.find(([relativePath]) => relativePath === "src/components/workbench/WorkbenchShell.tsx")?.[1] ?? "",
   ].join("\n");
   assert(workbenchSource.includes("/api/workspaces"), "workbench must call workspace API");
-  assert(workbenchSource.includes("/api/samples/public-domain-novel"), "workbench must load source sample through API");
+  assert(workbenchSource.includes("/api/samples/quan-zhi-gao-shou"), "workbench must load internal sample through API");
   assert(workbenchSource.includes("resultText"), "workbench must accept external result JSON instead of hardcoding one");
 }
 
@@ -233,9 +233,11 @@ async function runApiChecks(base) {
     const unsafeId = await fetchJson(base, "/api/workspaces/..%2Findex", { method: "GET" });
     assert(unsafeId.response.status === 400 || unsafeId.response.status === 404, `unsafe workspace id must not load data, got ${unsafeId.response.status}`);
 
-    const sample = await fetchJson(base, "/api/samples/public-domain-novel");
+    const sample = await fetchJson(base, "/api/samples/quan-zhi-gao-shou?chapters=3");
     assert(sample.response.status === 200, `sample endpoint returned ${sample.response.status}`);
-    assert(typeof sample.data?.chapterText === "string" && sample.data.chapterText.includes("第一回"), "sample endpoint must return source chapter text");
+    assert(typeof sample.data?.chapterText === "string" && sample.data.chapterText.includes("第"), "sample endpoint must return source chapter text");
+    assert(sample.data?.id === "quan-zhi-gao-shou-internal", "sample endpoint must return the internal Quan Zhi Gao Shou sample");
+    assert(sample.data?.selection?.chapterCount >= 3, "sample endpoint must return at least three continuous chapters");
 
     const initialState = {
       schema_version: "1.1",

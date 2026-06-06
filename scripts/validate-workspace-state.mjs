@@ -94,7 +94,8 @@ for (const token of [
   "applyWorkspaceState",
   "saveCurrentWorkspaceState",
   "hasUnsavedState",
-  "保存当前状态",
+  "保存当前工作区",
+  "另存为新工作区",
 ]) {
   assert.match(shell, new RegExp(token), `WorkbenchShell must wire full state persistence token: ${token}`);
 }
