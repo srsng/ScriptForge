@@ -79,6 +79,12 @@ console.log("  ✓ package script exists");
 assertFile("src/lib/generation/quality.ts");
 assertFile("src/lib/generation/revise.ts");
 assertFile("src/app/api/revise/route.ts");
+assertFile("src/app/api/generate/_shared.ts");
+assertFile("src/app/api/generate/analyzer/route.ts");
+assertFile("src/app/api/generate/planner/route.ts");
+assertFile("src/app/api/generate/screenwriter/route.ts");
+assertFile("src/app/api/generate/reporter/route.ts");
+assertFile("src/app/api/generate/assemble/route.ts");
 assertContains("src/lib/generation/quality.ts", [
   "export function evaluateScriptDensity",
   "buildScriptCapacityBudget",
@@ -171,10 +177,21 @@ assertContains("src/lib/generation/prompts.ts", [
   "beats",
   "dialogue beats",
   "needs_revision",
+  "完整原文",
+  "规划与正文写作仍必须参考完整原文",
+  "先读完整章节正文",
+  "beat_budget 必须根据目标时长、自然场面容量和原文可拍素材分配",
+  "写正文时必须回看完整原文",
+  "不得只复述 Analyzer 或 Planner 摘要",
+]);
+assertContains("src/lib/generation/prompts.ts", [
+  /buildPlannerPrompt[\s\S]*小说章节（完整原文，必须用于判断自然场景边界和戏剧规划）[\s\S]*chapterDigest\(request\)[\s\S]*Analyzer 输出/,
+  /buildScreenwriterPrompt[\s\S]*小说章节（完整原文，必须用于支撑剧本正文扩写）[\s\S]*chapterDigest\(request\)[\s\S]*Analyzer 输出[\s\S]*Planner 输出/,
 ]);
 assertNotContains("src/lib/generation/prompts.ts", [
   "flattenForSingleRequest",
   "buildCombinedMessages",
+  "唯一事实板",
   /slice\(0,\s*900\)/,
   legacyChapterExcerptLabel,
   "硬性容量预算",
@@ -257,6 +274,11 @@ assertContains("src/lib/generation/generate.ts", [
   "parseScreenwriterOutput",
   "parseReporterOutput",
   "assembleDocument",
+  "runAnalyzerStage",
+  "runPlannerStage",
+  "runScreenwriterStage",
+  "runReporterStage",
+  "assembleGenerationResult",
   "stageOutputs",
   "GENERATION_STAGE_TIMEOUT_MS",
   "evaluateScriptDensity",
@@ -282,16 +304,72 @@ assertContains("src/lib/generation/types.ts", [
   "ScreenwriterStageOutput",
   "ReporterStageOutput",
   "GenerationStageOutputs",
+  "GenerationStageMetrics",
+  "GenerationStageResult",
 ]);
 assertContains("docs/technical-design.md", [
   "多轮串行 API 编排",
+  "不使用 SSE 或 token streaming",
+  "多轮不是逐轮压缩原文",
+  "Planner 与 Screenwriter 仍接收完整章节正文",
+  "key_facts` 是追溯和校验索引",
+  "Screenwriter 必须回看完整章节正文",
+  "/api/generate/analyzer",
+  "/api/generate/planner",
+  "/api/generate/screenwriter",
+  "/api/generate/reporter",
+  "/api/generate/assemble",
+  "每个阶段请求返回后，UI 立即展示",
   "AnalyzerStageOutput",
   "PlannerStageOutput",
   "ScreenwriterStageOutput",
   "ReporterStageOutput",
+  "GenerationStageMetrics",
   "GENERATION_STAGE_TIMEOUT_MS=",
 ]);
 console.log("  ✓ generation flow uses explicit multi-round stages without generated substitutes");
+
+assertContains("src/app/api/generate/_shared.ts", [
+  "stageResponse",
+  "GenerationStageResult",
+  "diagnostics",
+  "metrics",
+  "prompt",
+  "model",
+]);
+assertContains("src/app/api/generate/analyzer/route.ts", [
+  "runAnalyzerStage",
+  "stageResponse",
+  "normalizeGenerationRequest",
+]);
+assertContains("src/app/api/generate/planner/route.ts", [
+  "runPlannerStage",
+  "Expected analyzer stage output",
+  "stageResponse",
+]);
+assertContains("src/app/api/generate/screenwriter/route.ts", [
+  "runScreenwriterStage",
+  "Expected planner stage output",
+  "stageResponse",
+]);
+assertContains("src/app/api/generate/reporter/route.ts", [
+  "runReporterStage",
+  "Expected screenwriter stage output",
+  "stageResponse",
+]);
+assertContains("src/app/api/generate/assemble/route.ts", [
+  "assembleGenerationResult",
+  "Expected complete stage outputs",
+  "finalGenerationResponse",
+]);
+assertNotContains("src/app/api/generate/assemble/route.ts", [
+  "requestJsonFromModel",
+  "runAnalyzerStage",
+  "runPlannerStage",
+  "runScreenwriterStage",
+  "runReporterStage",
+]);
+console.log("  ✓ staged generation API exposes each model request separately");
 
 assertContains("src/app/api/generate/route.ts", [
   "resultSource",
@@ -310,6 +388,15 @@ assertContains("src/components/workbench/WorkbenchShell.tsx", [
   '"success"',
   "ai_draft",
   "结构化草稿",
+  "runStageRequest",
+  "/api/generate/analyzer",
+  "/api/generate/planner",
+  "/api/generate/screenwriter",
+  "/api/generate/reporter",
+  "/api/generate/assemble",
+  "generationStagePreviews",
+  "setGenerationStagePreviews",
+  "GenerationStageMetrics",
 ]);
 assertNotContains("src/components/workbench/WorkbenchShell.tsx", [
   legacyResultFlag,
@@ -319,6 +406,9 @@ assertContains("src/components/workbench/GenerationPanel.tsx", [
   "needs_revision",
   "剧本质量不足",
   "结构化草稿",
+  "stagePreviews",
+  "阶段结果",
+  "details",
   "targetDurationMinutes",
   "CAPACITY_SUMMARY",
   "无法支撑",

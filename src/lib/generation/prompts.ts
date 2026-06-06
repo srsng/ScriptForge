@@ -108,7 +108,7 @@ ${chapterDigest(request)}
 
   return {
     stage: "analyzer",
-    responseContract: "输出 AnalyzerStageOutput：{ source }，source.chapters[].key_facts 是后续规划和剧本正文的唯一事实板。",
+    responseContract: "输出 AnalyzerStageOutput：{ source }，source.chapters[].key_facts 用于后续追溯和校验；规划与正文写作仍必须参考完整原文。",
     messages,
   };
 }
@@ -120,6 +120,9 @@ export function buildPlannerPrompt(request: GenerationRequest, analyzer: Analyze
     {
       role: "user",
       content: `${targetContext(request)}
+
+小说章节（完整原文，必须用于判断自然场景边界和戏剧规划）：
+${chapterDigest(request)}
 
 Analyzer 输出：
 ${jsonBlock(analyzer)}
@@ -167,8 +170,10 @@ ${jsonBlock(analyzer)}
 }
 
 要求：
+- 先读完整章节正文，再结合 Analyzer facts 规划；不要只根据 Analyzer 摘要或 facts 做二次压缩。
 - 先判断自然场景边界；不要为了凑场景数量拆分连续场景。
 - 每张场面卡必须包含 scene objective、opposition、entry state、turning point、exit state、visual atmosphere、beat budget、adaptation notes。
+- beat_budget 必须根据目标时长、自然场面容量和原文可拍素材分配，不要使用模板值。
 - scene_plan[].source_refs 只能引用 Analyzer 的 key_facts。
 - scene_plan[].source_chapters 只能引用 Analyzer 的章节 id。
 - scene_plan[].location 必须引用 locations.id。
@@ -198,6 +203,9 @@ export function buildScreenwriterPrompt(
     {
       role: "user",
       content: `${targetContext(request)}
+
+小说章节（完整原文，必须用于支撑剧本正文扩写）：
+${chapterDigest(request)}
 
 Analyzer 输出：
 ${jsonBlock(analyzer)}
@@ -239,6 +247,8 @@ ${jsonBlock(planner)}
 - scenes 必须逐一对应 planner.scene_plan 的 scene id，不要新增或删除 scene。
 - 每个 scene 的 location、characters、source_chapters、source_refs、scene_card、dramatic_purpose、conflict 必须保持 planner 规划。
 - 每个 beat 必须有 function 和 source_refs；source_refs 只能引用 Analyzer 的 key_facts。
+- 写正文时必须回看完整原文，不得只复述 Analyzer 或 Planner 摘要；从原文细节、动作过程、环境压力、潜台词和人物反应扩写。
+- 如果使用了未被 Analyzer 单独列出的原文细节，必须引用最接近的已有 key_facts，保证 source_refs 可追溯。
 - dialogue beat 必须有 character，且 character 必须在该 scene.characters 中。
 - action 写过程，不写结果句；dialogue 写潜台词和动作配合。
 - action 与 dialogue 交错推进，容量从目标、阻碍、试探、回避、反击、信息释放和环境压力中自然长出来。

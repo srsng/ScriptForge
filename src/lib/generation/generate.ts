@@ -31,7 +31,9 @@ import type {
   GenerationDiagnostic,
   GenerationResult,
   GenerationStage,
+  GenerationStageMetrics,
   GenerationStageOutputs,
+  GenerationStageResult,
   PlannedScene,
   PlannerStageOutput,
   PromptBundle,
@@ -82,8 +84,9 @@ function diagnostic(
   message: string,
   severity: GenerationDiagnostic["severity"] = "info",
   kind?: GenerationDiagnostic["kind"],
+  details?: string,
 ): GenerationDiagnostic {
-  return { stage, message, severity, kind };
+  return { stage, message, severity, kind, ...(details ? { details } : {}) };
 }
 
 function readPositiveIntegerEnv(name: string): number | null {
@@ -98,6 +101,34 @@ function stageTimeoutMs(stage: StageName): number {
   return readPositiveIntegerEnv(stageEnvName)
     ?? readPositiveIntegerEnv("GENERATION_STAGE_TIMEOUT_MS")
     ?? DEFAULT_STAGE_TIMEOUT_MS;
+}
+
+function promptCharCount(prompt: PromptBundle): number {
+  return prompt.messages.reduce((sum, message) => sum + message.content.length, 0);
+}
+
+function formatElapsed(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function metricsDetails(metrics: GenerationStageMetrics): string {
+  return [
+    `elapsed=${formatElapsed(metrics.elapsedMs)}`,
+    `timeout=${formatElapsed(metrics.timeoutMs)}`,
+    `promptChars=${metrics.promptChars}`,
+    `responseChars=${metrics.responseChars}`,
+    metrics.provider ? `provider=${metrics.provider}` : null,
+    metrics.model ? `model=${metrics.model}` : null,
+  ].filter((item): item is string => item !== null).join("；");
+}
+
+function emptyMetrics(prompt: PromptBundle, timeoutMs: number, startedAt: number): GenerationStageMetrics {
+  return {
+    elapsedMs: Date.now() - startedAt,
+    timeoutMs,
+    promptChars: promptCharCount(prompt),
+    responseChars: 0,
+  };
 }
 
 export function normalizeTargetDuration(value: unknown, defaultDuration = 12): number | null {
@@ -510,13 +541,20 @@ function errorResult(params: {
   model?: string;
   kind?: GenerationDiagnostic["kind"];
 }): GenerationResult {
+  const hasStageError = params.diagnostics.some((item) => (
+    item.stage === params.stage &&
+    item.severity === "error" &&
+    item.message === params.message
+  ));
   return {
     status: "error",
     error: params.message,
-    diagnostics: [
-      ...params.diagnostics,
-      diagnostic(params.stage, params.message, "error", params.kind ?? "validation"),
-    ],
+    diagnostics: hasStageError
+      ? params.diagnostics
+      : [
+        ...params.diagnostics,
+        diagnostic(params.stage, params.message, "error", params.kind ?? "validation"),
+      ],
     promptStages: params.promptStages,
     stageOutputs: params.stageOutputs,
     model: params.model,
@@ -526,84 +564,137 @@ function errorResult(params: {
 async function runStage<T>(
   prompt: PromptBundle,
   parser: (value: unknown) => StageParseResult<T>,
-): Promise<{ ok: true; output: T; model?: string } | { ok: false; message: string; model?: string; kind: GenerationDiagnostic["kind"] }> {
-  const modelResponse = await requestJsonFromModel(prompt.messages, { timeoutMs: stageTimeoutMs(prompt.stage) });
+  successMessage: (output: T) => string,
+): Promise<GenerationStageResult<T>> {
+  const timeoutMs = stageTimeoutMs(prompt.stage);
+  const startedAt = Date.now();
+  const modelResponse = await requestJsonFromModel(prompt.messages, { timeoutMs });
+  const baseMetrics = emptyMetrics(prompt, timeoutMs, startedAt);
   if (!modelResponse.ok) {
+    const metrics = {
+      ...baseMetrics,
+      model: modelResponse.model,
+      provider: modelResponse.provider,
+    };
+    const message = modelResponse.message || `${prompt.stage} AI 请求失败。`;
     return {
-      ok: false,
+      status: "error",
+      error: message,
+      prompt,
+      metrics,
       model: modelResponse.model,
       kind: modelResponse.status ? "network" : "configuration",
-      message: modelResponse.message || `${prompt.stage} AI 请求失败。`,
+      diagnostics: [
+        diagnostic(prompt.stage, message, "error", modelResponse.status ? "network" : "configuration", metricsDetails(metrics)),
+      ],
     };
   }
 
+  const metrics: GenerationStageMetrics = {
+    ...baseMetrics,
+    elapsedMs: Date.now() - startedAt,
+    responseChars: modelResponse.content.length,
+    provider: modelResponse.provider,
+    model: modelResponse.model,
+  };
   const parsed = parseModelJson(modelResponse.content);
   if (!parsed.ok) {
-    return { ok: false, model: modelResponse.model, kind: "parse", message: parsed.message };
+    return {
+      status: "error",
+      error: parsed.message,
+      prompt,
+      metrics,
+      model: modelResponse.model,
+      kind: "parse",
+      diagnostics: [
+        diagnostic(prompt.stage, parsed.message, "error", "parse", metricsDetails(metrics)),
+      ],
+    };
   }
 
   const output = parser(parsed.value);
   if (!output.ok) {
-    return { ok: false, model: modelResponse.model, kind: "validation", message: output.message };
+    return {
+      status: "error",
+      error: output.message,
+      prompt,
+      metrics,
+      model: modelResponse.model,
+      kind: "validation",
+      diagnostics: [
+        diagnostic(prompt.stage, output.message, "error", "validation", metricsDetails(metrics)),
+      ],
+    };
   }
 
-  return { ok: true, output: output.output, model: modelResponse.model };
+  return {
+    status: "ok",
+    output: output.output,
+    prompt,
+    metrics,
+    model: modelResponse.model,
+    diagnostics: [
+      diagnostic(prompt.stage, successMessage(output.output), "info", undefined, metricsDetails(metrics)),
+    ],
+  };
 }
 
-export async function generateScriptForgeDocument(request: GenerationRequest): Promise<GenerationResult> {
-  if (request.chapters.length < MIN_CHAPTER_COUNT) {
-    throw new Error(`至少需要 ${MIN_CHAPTER_COUNT} 章有效输入。`);
-  }
+export async function runAnalyzerStage(request: GenerationRequest): Promise<GenerationStageResult<AnalyzerStageOutput>> {
+  const prompt = buildAnalyzerPrompt(request);
+  return runStage(
+    prompt,
+    (value) => parseAnalyzerOutput(value, request),
+    (output) => `Source Facts 已生成：${output.source.chapters.length} 章，${collectFactIds(output.source).size} 条 key_facts。`,
+  );
+}
 
-  const promptStages: PromptBundle[] = [];
-  const stageOutputs: GenerationStageOutputs = {};
-  const diagnostics: GenerationDiagnostic[] = [
-    diagnostic("analyzer", `接收 ${request.chapters.length} 章小说输入。`),
-    diagnostic("planner", `目标：${request.target.format} / ${request.target.genre} / ${request.target.target_duration_minutes} 分钟。`),
-  ];
-  let model: string | undefined;
+export async function runPlannerStage(
+  request: GenerationRequest,
+  analyzer: AnalyzerStageOutput,
+): Promise<GenerationStageResult<PlannerStageOutput>> {
+  const prompt = buildPlannerPrompt(request, analyzer);
+  return runStage(
+    prompt,
+    (value) => parsePlannerOutput(value, analyzer),
+    (output) => `Dramatic Plan 已生成：${output.characters.length} 个角色、${output.locations.length} 个地点、${output.scene_plan.length} 个自然场面卡。`,
+  );
+}
 
-  const analyzerPrompt = buildAnalyzerPrompt(request);
-  promptStages.push(analyzerPrompt);
-  const analyzerResult = await runStage(analyzerPrompt, (value) => parseAnalyzerOutput(value, request));
-  if (!analyzerResult.ok) {
-    return errorResult({ stage: "analyzer", message: analyzerResult.message, diagnostics, promptStages, stageOutputs, model: analyzerResult.model, kind: analyzerResult.kind });
-  }
-  model = analyzerResult.model;
-  stageOutputs.analyzer = analyzerResult.output;
-  diagnostics.push(diagnostic("analyzer", `Source Facts 已生成：${analyzerResult.output.source.chapters.length} 章，${collectFactIds(analyzerResult.output.source).size} 条 key_facts。`));
+export async function runScreenwriterStage(
+  request: GenerationRequest,
+  analyzer: AnalyzerStageOutput,
+  planner: PlannerStageOutput,
+): Promise<GenerationStageResult<ScreenwriterStageOutput>> {
+  const prompt = buildScreenwriterPrompt(request, analyzer, planner);
+  return runStage(
+    prompt,
+    (value) => parseScreenwriterOutput(value, analyzer, planner),
+    (output) => `Dense Beats 已生成：${output.scenes.length} 场、${output.scenes.reduce((sum, scene) => sum + scene.beats.length, 0)} 个 beats。`,
+  );
+}
 
-  const plannerPrompt = buildPlannerPrompt(request, analyzerResult.output);
-  promptStages.push(plannerPrompt);
-  const plannerResult = await runStage(plannerPrompt, (value) => parsePlannerOutput(value, analyzerResult.output));
-  if (!plannerResult.ok) {
-    return errorResult({ stage: "planner", message: plannerResult.message, diagnostics, promptStages, stageOutputs, model: plannerResult.model ?? model, kind: plannerResult.kind });
-  }
-  model = plannerResult.model ?? model;
-  stageOutputs.planner = plannerResult.output;
-  diagnostics.push(diagnostic("planner", `Dramatic Plan 已生成：${plannerResult.output.characters.length} 个角色、${plannerResult.output.locations.length} 个地点、${plannerResult.output.scene_plan.length} 个自然场面卡。`));
+export async function runReporterStage(
+  request: GenerationRequest,
+  analyzer: AnalyzerStageOutput,
+  planner: PlannerStageOutput,
+  screenwriter: ScreenwriterStageOutput,
+): Promise<GenerationStageResult<ReporterStageOutput>> {
+  const prompt = buildReporterPrompt(request, analyzer, planner, screenwriter);
+  return runStage(
+    prompt,
+    (value) => parseReporterOutput(value, analyzer, planner, screenwriter),
+    () => "Adaptation Report 已生成。",
+  );
+}
 
-  const screenwriterPrompt = buildScreenwriterPrompt(request, analyzerResult.output, plannerResult.output);
-  promptStages.push(screenwriterPrompt);
-  const screenwriterResult = await runStage(screenwriterPrompt, (value) => parseScreenwriterOutput(value, analyzerResult.output, plannerResult.output));
-  if (!screenwriterResult.ok) {
-    return errorResult({ stage: "screenwriter", message: screenwriterResult.message, diagnostics, promptStages, stageOutputs, model: screenwriterResult.model ?? model, kind: screenwriterResult.kind });
-  }
-  model = screenwriterResult.model ?? model;
-  stageOutputs.screenwriter = screenwriterResult.output;
-  diagnostics.push(diagnostic("screenwriter", `Dense Beats 已生成：${screenwriterResult.output.scenes.length} 场、${screenwriterResult.output.scenes.reduce((sum, scene) => sum + scene.beats.length, 0)} 个 beats。`));
-
-  const reporterPrompt = buildReporterPrompt(request, analyzerResult.output, plannerResult.output, screenwriterResult.output);
-  promptStages.push(reporterPrompt);
-  const reporterResult = await runStage(reporterPrompt, (value) => parseReporterOutput(value, analyzerResult.output, plannerResult.output, screenwriterResult.output));
-  if (!reporterResult.ok) {
-    return errorResult({ stage: "reporter", message: reporterResult.message, diagnostics, promptStages, stageOutputs, model: reporterResult.model ?? model, kind: reporterResult.kind });
-  }
-  model = reporterResult.model ?? model;
-  stageOutputs.reporter = reporterResult.output;
-  diagnostics.push(diagnostic("reporter", "Adaptation Report 已生成。"));
-
-  const document = assembleDocument(request, analyzerResult.output, plannerResult.output, screenwriterResult.output, reporterResult.output);
+export function assembleGenerationResult(
+  request: GenerationRequest,
+  stageOutputs: Required<GenerationStageOutputs>,
+  diagnostics: GenerationDiagnostic[],
+  promptStages: PromptBundle[],
+  model?: string,
+): GenerationResult {
+  const document = assembleDocument(request, stageOutputs.analyzer, stageOutputs.planner, stageOutputs.screenwriter, stageOutputs.reporter);
   const validation = validateScriptForgeDocument(document);
   if (!validation.valid) {
     const error = `AI 文档未通过 Schema 或引用校验：${validation.errors.map((item) => item.message).slice(0, 3).join("；")}`;
@@ -637,4 +728,56 @@ export async function generateScriptForgeDocument(request: GenerationRequest): P
     stageOutputs,
     model,
   };
+}
+
+export async function generateScriptForgeDocument(request: GenerationRequest): Promise<GenerationResult> {
+  if (request.chapters.length < MIN_CHAPTER_COUNT) {
+    throw new Error(`至少需要 ${MIN_CHAPTER_COUNT} 章有效输入。`);
+  }
+
+  const promptStages: PromptBundle[] = [];
+  const stageOutputs: GenerationStageOutputs = {};
+  const diagnostics: GenerationDiagnostic[] = [
+    diagnostic("analyzer", `接收 ${request.chapters.length} 章小说输入。`),
+    diagnostic("planner", `目标：${request.target.format} / ${request.target.genre} / ${request.target.target_duration_minutes} 分钟。`),
+  ];
+  let model: string | undefined;
+
+  const analyzerResult = await runAnalyzerStage(request);
+  promptStages.push(analyzerResult.prompt);
+  diagnostics.push(...analyzerResult.diagnostics);
+  if (analyzerResult.status === "error") {
+    return errorResult({ stage: "analyzer", message: analyzerResult.error, diagnostics, promptStages, stageOutputs, model: analyzerResult.model, kind: analyzerResult.kind });
+  }
+  model = analyzerResult.model;
+  stageOutputs.analyzer = analyzerResult.output;
+
+  const plannerResult = await runPlannerStage(request, analyzerResult.output);
+  promptStages.push(plannerResult.prompt);
+  diagnostics.push(...plannerResult.diagnostics);
+  if (plannerResult.status === "error") {
+    return errorResult({ stage: "planner", message: plannerResult.error, diagnostics, promptStages, stageOutputs, model: plannerResult.model ?? model, kind: plannerResult.kind });
+  }
+  model = plannerResult.model ?? model;
+  stageOutputs.planner = plannerResult.output;
+
+  const screenwriterResult = await runScreenwriterStage(request, analyzerResult.output, plannerResult.output);
+  promptStages.push(screenwriterResult.prompt);
+  diagnostics.push(...screenwriterResult.diagnostics);
+  if (screenwriterResult.status === "error") {
+    return errorResult({ stage: "screenwriter", message: screenwriterResult.error, diagnostics, promptStages, stageOutputs, model: screenwriterResult.model ?? model, kind: screenwriterResult.kind });
+  }
+  model = screenwriterResult.model ?? model;
+  stageOutputs.screenwriter = screenwriterResult.output;
+
+  const reporterResult = await runReporterStage(request, analyzerResult.output, plannerResult.output, screenwriterResult.output);
+  promptStages.push(reporterResult.prompt);
+  diagnostics.push(...reporterResult.diagnostics);
+  if (reporterResult.status === "error") {
+    return errorResult({ stage: "reporter", message: reporterResult.error, diagnostics, promptStages, stageOutputs, model: reporterResult.model ?? model, kind: reporterResult.kind });
+  }
+  model = reporterResult.model ?? model;
+  stageOutputs.reporter = reporterResult.output;
+
+  return assembleGenerationResult(request, stageOutputs as Required<GenerationStageOutputs>, diagnostics, promptStages, model);
 }

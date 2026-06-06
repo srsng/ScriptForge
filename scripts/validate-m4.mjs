@@ -6,6 +6,12 @@ const root = process.cwd();
 const read = (file) => readFileSync(join(root, file), "utf8");
 
 const route = read("src/app/api/generate/route.ts");
+const stageSharedRoute = read("src/app/api/generate/_shared.ts");
+const analyzerRoute = read("src/app/api/generate/analyzer/route.ts");
+const plannerRoute = read("src/app/api/generate/planner/route.ts");
+const screenwriterRoute = read("src/app/api/generate/screenwriter/route.ts");
+const reporterRoute = read("src/app/api/generate/reporter/route.ts");
+const assembleRoute = read("src/app/api/generate/assemble/route.ts");
 const page = read("src/app/page.tsx");
 const workbench = read("src/components/workbench/WorkbenchShell.tsx");
 const generationPanel = read("src/components/workbench/GenerationPanel.tsx");
@@ -36,6 +42,22 @@ const legacyGeneratedBuilder = ["build", "Fall", "back", "Document"].join("");
 assert.doesNotMatch(route, new RegExp(legacyGeneratedResultFlag), "generate route must not expose a generated substitute success flag");
 assert.doesNotMatch(route, /dotenv|\.env|SECRET|PRIVATE_KEY|API_KEY/i, "generate route must not read secrets directly");
 
+for (const [label, source, tokens] of [
+  ["analyzer route", analyzerRoute, ["export async function POST", "normalizeGenerationRequest", "runAnalyzerStage", "stageResponse"]],
+  ["planner route", plannerRoute, ["export async function POST", "normalizeGenerationRequest", "runPlannerStage", "Expected analyzer stage output", "stageResponse"]],
+  ["screenwriter route", screenwriterRoute, ["export async function POST", "normalizeGenerationRequest", "runScreenwriterStage", "Expected planner stage output", "stageResponse"]],
+  ["reporter route", reporterRoute, ["export async function POST", "normalizeGenerationRequest", "runReporterStage", "Expected screenwriter stage output", "stageResponse"]],
+  ["assemble route", assembleRoute, ["export async function POST", "assembleGenerationResult", "Expected complete stage outputs", "finalGenerationResponse"]],
+]) {
+  for (const token of tokens) {
+    assert.match(source, new RegExp(token), `${label} missing ${token}`);
+  }
+}
+assert.match(stageSharedRoute, /GenerationStageResult/, "shared stage route must type stage responses");
+assert.match(stageSharedRoute, /metrics/, "shared stage route must expose stage metrics");
+assert.match(stageSharedRoute, /prompt/, "shared stage route must expose prompt bundle");
+assert.doesNotMatch(assembleRoute, /requestJsonFromModel|runAnalyzerStage|runPlannerStage|runScreenwriterStage|runReporterStage/, "assemble route must not call AI stages");
+
 const workbenchUi = [page, workbench, generationPanel].join("\n");
 
 for (const [label, pattern] of [
@@ -48,6 +70,20 @@ for (const [label, pattern] of [
 ]) {
   assert.match(workbenchUi, pattern, `M6 workbench UI missing ${label}`);
 }
+for (const [label, pattern] of [
+  ["analyzer stage endpoint", /\/api\/generate\/analyzer/],
+  ["planner stage endpoint", /\/api\/generate\/planner/],
+  ["screenwriter stage endpoint", /\/api\/generate\/screenwriter/],
+  ["reporter stage endpoint", /\/api\/generate\/reporter/],
+  ["assemble endpoint", /\/api\/generate\/assemble/],
+  ["stage request runner", /runStageRequest/],
+  ["stage preview state", /generationStagePreviews/],
+  ["stage preview prop", /stagePreviews/],
+  ["stage result panel", /阶段结果/],
+  ["elapsed loading label", /生成中\.\.\.\(\$\{generationElapsedSeconds\}s\)/],
+]) {
+  assert.match(workbenchUi, pattern, `workbench staged generation UI missing ${label}`);
+}
 
 for (const token of ["buildAnalyzerPrompt", "buildPlannerPrompt", "buildScreenwriterPrompt", "buildReporterPrompt"]) {
   assert.match(prompts, new RegExp(`export function ${token}`), `prompts.ts missing exported ${token}`);
@@ -58,6 +94,11 @@ for (const token of [
   "Screenwriter",
   "Reporter",
   "只允许使用输入章节",
+  "完整原文",
+  "规划与正文写作仍必须参考完整原文",
+  "先读完整章节正文",
+  "写正文时必须回看完整原文",
+  "不得只复述 Analyzer 或 Planner 摘要",
   "characters",
   "locations",
   "adaptation_report",
@@ -67,6 +108,10 @@ for (const token of [
 ]) {
   assert.match(prompts, new RegExp(token), `prompts.ts must preserve source-grounded generation instruction: ${token}`);
 }
+assert.match(prompts, /buildPlannerPrompt[\s\S]*小说章节（完整原文，必须用于判断自然场景边界和戏剧规划）[\s\S]*chapterDigest\(request\)[\s\S]*Analyzer 输出/, "planner prompt must include full source chapters before analyzer output");
+assert.match(prompts, /buildScreenwriterPrompt[\s\S]*小说章节（完整原文，必须用于支撑剧本正文扩写）[\s\S]*chapterDigest\(request\)[\s\S]*Analyzer 输出[\s\S]*Planner 输出/, "screenwriter prompt must include full source chapters before stage outputs");
+assert.match(prompts, /beat_budget 必须根据目标时长、自然场面容量和原文可拍素材分配/, "planner prompt must derive beat_budget from source material");
+assert.doesNotMatch(prompts, /唯一事实板/, "prompts must not make analyzer facts the only writing source");
 assert.doesNotMatch(prompts, /export function flattenForSingleRequest/, "prompts.ts must not expose the old single-request flatten helper");
 assert.doesNotMatch(prompts, /export function buildCombinedMessages/, "prompts.ts must not expose the old combined-message helper");
 
@@ -76,6 +121,8 @@ assert.match(types, /PlannerStageOutput/, "types.ts missing planner stage output
 assert.match(types, /ScreenwriterStageOutput/, "types.ts missing screenwriter stage output type");
 assert.match(types, /ReporterStageOutput/, "types.ts missing reporter stage output type");
 assert.match(types, /GenerationStageOutputs/, "types.ts missing combined stage outputs type");
+assert.match(types, /GenerationStageMetrics/, "types.ts missing stage metrics type");
+assert.match(types, /GenerationStageResult/, "types.ts missing per-stage result type");
 assert.match(generate, /severity: GenerationDiagnostic\["severity"\] = "info"/, "generate.ts diagnostic severity must match type");
 assert.match(generate, /evaluateScriptDensity/, "generation must run the density quality gate after schema validation");
 assert.match(generate, /needs_revision/, "generation must return needs_revision for quality-failed AI drafts");
@@ -89,6 +136,11 @@ assert.match(generate, /parsePlannerOutput/, "generation must validate planner o
 assert.match(generate, /parseScreenwriterOutput/, "generation must validate screenwriter output");
 assert.match(generate, /parseReporterOutput/, "generation must validate reporter output");
 assert.match(generate, /assembleDocument/, "generation must assemble final ScriptForgeDocument from stage outputs");
+assert.match(generate, /export async function runAnalyzerStage/, "generation must export analyzer stage runner");
+assert.match(generate, /export async function runPlannerStage/, "generation must export planner stage runner");
+assert.match(generate, /export async function runScreenwriterStage/, "generation must export screenwriter stage runner");
+assert.match(generate, /export async function runReporterStage/, "generation must export reporter stage runner");
+assert.match(generate, /export function assembleGenerationResult/, "generation must export non-AI assembly");
 assert.match(generate, /GENERATION_STAGE_TIMEOUT_MS/, "generation must support configurable stage timeout");
 assert.doesNotMatch(generate, /flattenForSingleRequest/, "production generation must not flatten stages into one model request");
 assert.doesNotMatch(generate, new RegExp(legacyGeneratedBuilder), "production generation must not call generated substitute builder");
@@ -99,6 +151,13 @@ assert.match(client, /AbortSignal\.timeout\(timeoutMs\)/, "AI client must apply 
 assert.match(client, /"OPENAI_API_KEY"/, "AI client must read OPENAI_API_KEY");
 assert.match(technicalDesign, /OPENAI_API_KEY=/, "technical design must document OPENAI_API_KEY configuration");
 assert.match(technicalDesign, /多轮串行 API 编排/, "technical design must document multi-round generation");
+assert.match(technicalDesign, /不使用 SSE 或 token streaming/, "technical design must document non-streaming staged HTTP behavior");
+assert.match(technicalDesign, /多轮不是逐轮压缩原文/, "technical design must document full-source staged generation");
+assert.match(technicalDesign, /Planner 与 Screenwriter 仍接收完整章节正文/, "technical design must document full source input for planning and writing");
+assert.match(technicalDesign, /\/api\/generate\/analyzer/, "technical design must document analyzer stage endpoint");
+assert.match(technicalDesign, /\/api\/generate\/assemble/, "technical design must document assemble endpoint");
+assert.match(technicalDesign, /每个阶段请求返回后，UI 立即展示/, "technical design must document immediate per-stage display");
+assert.match(technicalDesign, /GenerationStageMetrics/, "technical design must document stage metrics");
 assert.match(technicalDesign, /GENERATION_STAGE_TIMEOUT_MS=/, "technical design must document stage timeout configuration");
 assert.doesNotMatch(technicalDesign, /^AI_API_KEY=/m, "technical design must not document an unsupported AI_API_KEY alias");
 assert.doesNotMatch(route, /Number\.isFinite\(Number\(target\.target_duration_minutes\)\)/, "generate route must reject invalid target duration instead of accepting any finite number");

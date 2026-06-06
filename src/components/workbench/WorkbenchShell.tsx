@@ -12,7 +12,15 @@ import {
 } from "@/lib/yaml";
 import type { ValidationResult } from "@/lib/schema";
 import type { RepairResult } from "@/lib/repair";
-import type { GenerationDiagnostic } from "@/lib/generation/types";
+import type {
+  AnalyzerStageOutput,
+  GenerationDiagnostic,
+  GenerationStageMetrics,
+  PlannerStageOutput,
+  PromptBundle,
+  ReporterStageOutput,
+  ScreenwriterStageOutput,
+} from "@/lib/generation/types";
 import type {
   GenerationRequest,
   InputNormalizationResult,
@@ -21,7 +29,7 @@ import type {
   WorkspaceState,
 } from "@/types/scriptforge";
 import { AdaptationReportPanel } from "./AdaptationReportPanel";
-import { GenerationPanel } from "./GenerationPanel";
+import { GenerationPanel, type GenerationStagePreview } from "./GenerationPanel";
 import { InputPanel } from "./InputPanel";
 import { PreferencePanel } from "./PreferencePanel";
 import { QualityPanel } from "./QualityPanel";
@@ -67,7 +75,46 @@ type GenerateResponse = {
   error?: string;
 };
 
+type StageApiResponse<T> = {
+  status: "ok" | "error";
+  output?: T;
+  diagnostics?: GenerationDiagnostic[];
+  metrics?: GenerationStageMetrics;
+  prompt?: PromptBundle;
+  model?: string;
+  error?: string;
+};
+
 const EMPTY_RESULT_TEXT = "";
+const STAGE_LABELS: Record<GenerationStagePreview["stage"], string> = {
+  analyzer: "Analyzer",
+  planner: "Planner",
+  screenwriter: "Screenwriter",
+  reporter: "Reporter",
+};
+
+function previewJson(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+function stageSummary(stage: GenerationStagePreview["stage"], output: unknown): string {
+  if (stage === "analyzer") {
+    const analyzer = output as AnalyzerStageOutput;
+    const factCount = analyzer.source.chapters.reduce((sum, chapter) => sum + chapter.key_facts.length, 0);
+    return `${analyzer.source.chapters.length} 章，${factCount} 条 facts`;
+  }
+  if (stage === "planner") {
+    const planner = output as PlannerStageOutput;
+    return `${planner.characters.length} 人物，${planner.locations.length} 地点，${planner.scene_plan.length} 场面卡`;
+  }
+  if (stage === "screenwriter") {
+    const screenwriter = output as ScreenwriterStageOutput;
+    const beatCount = screenwriter.scenes.reduce((sum, scene) => sum + scene.beats.length, 0);
+    return `${screenwriter.scenes.length} 场，${beatCount} beats`;
+  }
+  const reporter = output as ReporterStageOutput;
+  return `${reporter.title || "未命名"}，${reporter.adaptation_report.revision_suggestions.length} 条后续改进`;
+}
 
 export function WorkbenchShell() {
   const [rawInput, setRawInput] = useState("");
@@ -87,6 +134,7 @@ export function WorkbenchShell() {
   const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null);
   const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
   const [generationDiagnostics, setGenerationDiagnostics] = useState<GenerationDiagnostic[]>([]);
+  const [generationStagePreviews, setGenerationStagePreviews] = useState<GenerationStagePreview[]>([]);
   const [generationError, setGenerationError] = useState("");
   const [yamlText, setYamlText] = useState("");
   const [yamlValidation, setYamlValidation] = useState<ValidationResult | null>(null);
@@ -155,6 +203,7 @@ export function WorkbenchShell() {
     setYamlValidation(state.yamlValidation as ValidationResult | null);
     setRepairResult(state.repairResult as RepairResult | null);
     setGenerationDiagnostics(state.generationDiagnostics as GenerationDiagnostic[]);
+    setGenerationStagePreviews([]);
     setGenerationError(state.generationError);
     setResultSource(state.resultSource);
     setMessage(state.message || "已恢复工作区");
@@ -191,6 +240,9 @@ export function WorkbenchShell() {
     setYamlValidation(null);
     setRepairResult(null);
     setResultSource("none");
+    setGenerationDiagnostics([]);
+    setGenerationStagePreviews([]);
+    setGenerationError("");
     setHasUnsavedState(true);
     setMessage(`已载入 ${sample.normalization.chapters.length} 章公开来源样本`);
   }
@@ -269,19 +321,86 @@ export function WorkbenchShell() {
     setGenerateState("loading");
     setGenerationError("");
     setGenerationDiagnostics([]);
+    setGenerationStagePreviews([]);
+    setResultText(EMPTY_RESULT_TEXT);
+    setYamlText("");
+    setYamlValidation(null);
     setRepairResult(null);
     setMessage("正在生成剧本初稿");
 
-    const payload = {
+    const basePayload = {
       request: currentGenerationRequest,
       workspaceId: activeWorkspace?.id,
     };
+    const diagnostics: GenerationDiagnostic[] = [];
+    const promptStages: PromptBundle[] = [];
+    let model: string | undefined;
 
-    try {
-      const response = await fetch("/api/generate", {
+    async function runStageRequest<T>(
+      stage: GenerationStagePreview["stage"],
+      endpoint: string,
+      body: Record<string, unknown>,
+    ): Promise<T> {
+      setMessage(`正在执行 ${STAGE_LABELS[stage]} 阶段`);
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
+      });
+      const data = (await response.json()) as StageApiResponse<T>;
+      diagnostics.push(...(data.diagnostics ?? []));
+      setGenerationDiagnostics([...diagnostics]);
+      if (!response.ok || data.status === "error" || !data.output) {
+        throw new Error(data.error ?? `${STAGE_LABELS[stage]} 阶段失败`);
+      }
+
+      if (data.prompt) promptStages.push(data.prompt);
+      model = data.model ?? model;
+      setGenerationStagePreviews((current) => [
+        ...current.filter((item) => item.stage !== stage),
+        {
+          stage,
+          label: STAGE_LABELS[stage],
+          summary: stageSummary(stage, data.output),
+          json: previewJson(data.output),
+        },
+      ]);
+      setMessage(`${STAGE_LABELS[stage]} 阶段完成`);
+      return data.output;
+    }
+
+    try {
+      const analyzer = await runStageRequest<AnalyzerStageOutput>("analyzer", "/api/generate/analyzer", basePayload);
+      const planner = await runStageRequest<PlannerStageOutput>("planner", "/api/generate/planner", {
+        ...basePayload,
+        analyzer,
+      });
+      const screenwriter = await runStageRequest<ScreenwriterStageOutput>("screenwriter", "/api/generate/screenwriter", {
+        ...basePayload,
+        analyzer,
+        planner,
+      });
+      const reporter = await runStageRequest<ReporterStageOutput>("reporter", "/api/generate/reporter", {
+        ...basePayload,
+        analyzer,
+        planner,
+        screenwriter,
+      });
+
+      setMessage("正在组装并校验剧本");
+      const response = await fetch("/api/generate/assemble", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...basePayload,
+          analyzer,
+          planner,
+          screenwriter,
+          reporter,
+          diagnostics,
+          promptStages,
+          model,
+        }),
       });
       const data = (await response.json()) as GenerateResponse;
 
@@ -324,14 +443,6 @@ export function WorkbenchShell() {
     } finally {
       setGenerationStartedAt(null);
     }
-  }
-
-  function handleResultTextChange(value: string) {
-    setResultText(value);
-    setYamlValidation(null);
-    setRepairResult(null);
-    setResultSource(value.trim() ? "manual" : "none");
-    setHasUnsavedState(true);
   }
 
   function handleConvertToYaml() {
@@ -637,6 +748,7 @@ export function WorkbenchShell() {
               generationElapsedSeconds={generationElapsedSeconds}
               generationError={generationError}
               diagnostics={generationDiagnostics}
+              stagePreviews={generationStagePreviews}
               resultSource={resultSource}
               targetDurationMinutes={duration}
               canGenerate={canGenerate}
@@ -680,19 +792,6 @@ export function WorkbenchShell() {
           </div>
 
           <aside className="space-y-5">
-            {/* 暂时隐藏结果 JSON */}
-            {/* <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-              <h2 className="text-lg font-semibold">结果 JSON</h2>
-              <p className="mt-1 text-sm text-zinc-600">{activeWorkspace ? `当前工作区 ${activeWorkspace.id}` : "可直接生成；保存工作区不是必需步骤"}</p>
-              <textarea
-                className="mt-3 min-h-[360px] w-full resize-y rounded-md border border-zinc-200 bg-white p-3 font-mono text-xs leading-5 outline-none focus:border-cyan-700"
-                onChange={(event) => handleResultTextChange(event.target.value)}
-                placeholder="ScriptForgeDocument JSON。AI 生成、repair 应用或手动粘贴都会驱动右侧预览。"
-                spellCheck={false}
-                value={resultText}
-              />
-            </section> */}
-
             <WorkspaceList
               workspaces={workspaces}
               onRefresh={() => void refreshWorkspaces()}

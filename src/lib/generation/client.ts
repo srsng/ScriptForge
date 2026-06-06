@@ -8,6 +8,7 @@ export type ModelClientResult = {
 } | {
   ok: false;
   model?: string;
+  provider?: "main" | "backup";
   message: string;
   status?: number;
 };
@@ -187,6 +188,7 @@ async function requestViaRawFetch(
     return {
       ok: false,
       model: provider.model,
+      provider: provider.name,
       status: response.status,
       message: `${provider.name} AI HTTP ${response.status}：${text.slice(0, 500)}`,
     };
@@ -195,7 +197,7 @@ async function requestViaRawFetch(
   const parsed = parsePotentialEventStreamBody(text);
   const content = extractContentFromChatCompletion(parsed);
   if (!content || content.trim().length === 0) {
-    return { ok: false, model: provider.model, message: `${provider.name} AI 兼容请求没有可解析的 message.content。` };
+    return { ok: false, model: provider.model, provider: provider.name, message: `${provider.name} AI 兼容请求没有可解析的 message.content。` };
   }
   return { ok: true, model: provider.model, provider: provider.name, content };
 }
@@ -211,6 +213,7 @@ async function requestFromProvider(
     return {
       ok: false,
       model: provider.model,
+      provider: provider.name,
       status: statusFromError(error),
       message: `${provider.name} AI 兼容请求异常：${messageFromError(error)}`,
     };
@@ -222,10 +225,15 @@ export async function requestJsonFromModel(
   options: ModelRequestOptions = {},
 ): Promise<ModelClientResult> {
   const providers = getConfiguredProviders();
+  console.log("current providers:");
+  providers.forEach(provider => {
+    console.log("\tbase:", provider.baseURL, "\n\tmodel:", provider.model);
+  });
   if (providers.length === 0) {
     return {
       ok: false,
       model: DEFAULT_MODEL,
+      provider: undefined,
       message: "未配置 OPENAI_API_KEY 或 BACKUP_OPENAI_API_KEY，无法执行 AI 生成。",
     };
   }
@@ -241,6 +249,7 @@ export async function requestJsonFromModel(
   return {
     ok: false,
     model: lastFailure?.model || configuredModel(),
+    provider: lastFailure?.ok === false ? lastFailure.provider : undefined,
     status: lastFailure?.ok === false ? lastFailure.status : undefined,
     message: failures.map((failure) => failure.ok ? "" : failure.message).filter(Boolean).join("；"),
   };
