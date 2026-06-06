@@ -6,8 +6,7 @@ export type WorkspaceIndexEntry = {
   created_at: string;
   updated_at: string;
   chapter_count: number;
-  request_path: string;
-  result_path?: string;
+  state_path: string;
 };
 
 type WorkspaceListProps = {
@@ -36,7 +35,7 @@ export function WorkspaceList({ workspaces, onRefresh, onLoadWorkspace }: Worksp
           >
             <div className="font-medium">{workspace.title}</div>
             <div className="mt-1 text-sm text-zinc-600">{workspace.chapter_count} 章 · {formatDate(workspace.updated_at)}</div>
-            <div className="mt-1 text-xs text-zinc-500">{workspace.result_path ? "已有结果" : "仅输入"}</div>
+            <div className="mt-1 text-xs text-zinc-500">已有状态</div>
           </button>
         ))}
       </div>

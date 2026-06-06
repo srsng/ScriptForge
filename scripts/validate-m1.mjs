@@ -157,7 +157,8 @@ async function runStaticChecks() {
   const workspaceDataSource = sources.find(([relativePath]) => relativePath === "src/lib/workspace-data.ts")?.[1] ?? "";
   assert(workspaceDataSource.includes("data") && workspaceDataSource.includes("workspaces"), "workspace storage must target data/workspaces");
   assert(workspaceDataSource.includes("writeJsonAtomic"), "workspace storage should write JSON atomically");
-  assert(workspaceDataSource.includes("saveWorkspaceResult"), "workspace storage must save reloadable results");
+  assert(workspaceDataSource.includes("saveWorkspaceState"), "workspace storage must save reloadable state");
+  assert(workspaceDataSource.includes("state.json"), "workspace storage must persist state.json");
   assert(workspaceDataSource.includes("path.relative"), "workspace storage must reject path traversal without prefix false positives");
 
   const workbenchSource = [
@@ -186,40 +187,63 @@ async function runApiChecks(base) {
     assert(sample.response.status === 200, `sample endpoint returned ${sample.response.status}`);
     assert(typeof sample.data?.chapterText === "string" && sample.data.chapterText.includes("第一回"), "sample endpoint must return source chapter text");
 
+    const initialState = {
+      schema_version: "1.0",
+      title: "M1 API validation workspace",
+      rawText: sample.data.chapterText,
+      request: {
+        chapters: sample.data.request.chapters,
+        target: { format: "short_drama", genre: "validation", target_duration_minutes: 1, tone: "neutral" },
+      },
+      result: null,
+      resultSource: "none",
+      yamlText: "",
+      yamlValidation: null,
+      repairResult: null,
+      generationDiagnostics: [],
+      generationError: "",
+      message: "validation",
+      updated_at: new Date().toISOString(),
+    };
+
     const create = await fetchJson(base, "/api/workspaces", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "M1 API validation workspace",
-        rawText: sample.data.chapterText,
-        target: { format: "short_drama", genre: "validation", target_duration_minutes: 1, tone: "neutral" },
-      }),
+      body: JSON.stringify({ state: initialState }),
     });
     assert(create.response.status === 201, `workspace create returned ${create.response.status}: ${JSON.stringify(create.data)}`);
     createdWorkspaceId = create.data?.id ?? "";
     assert(/^ws_[0-9]{14}_[a-z0-9]{6}$/.test(createdWorkspaceId), "created workspace id must be safe and generated");
+    assert(create.data?.state_path === `${createdWorkspaceId}/state.json`, "state must be persisted under data/workspaces/<id>");
     assert(create.data?.result === null, "new workspace should not contain a hardcoded generation result");
-    assert(create.data?.request_path === `${createdWorkspaceId}/request.json`, "request must be persisted under data/workspaces/<id>");
 
-    const invalidResult = await fetchJson(base, `/api/workspaces/${createdWorkspaceId}`, {
+    const invalidState = await fetchJson(base, `/api/workspaces/${createdWorkspaceId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ result: { script: { schema_version: "1.0", title: "invalid", characters: [], locations: [], scenes: [] } } }),
     });
-    assert(invalidResult.response.status === 400, `incomplete result must be rejected, got ${invalidResult.response.status}`);
+    assert(invalidState.response.status === 400, `non-state update must be rejected, got ${invalidState.response.status}`);
 
     const save = await fetchJson(base, `/api/workspaces/${createdWorkspaceId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ result: buildValidationDocument() }),
+      body: JSON.stringify({
+        state: {
+          ...initialState,
+          result: buildValidationDocument(),
+          resultSource: "manual",
+          yamlText: "script:\n  title: M1 API validation result\n",
+        },
+      }),
     });
-    assert(save.response.status === 200, `workspace result save returned ${save.response.status}: ${JSON.stringify(save.data)}`);
-    assert(save.data?.result_path === `${createdWorkspaceId}/result.json`, "result must be persisted under data/workspaces/<id>");
+    assert(save.response.status === 200, `workspace state save returned ${save.response.status}: ${JSON.stringify(save.data)}`);
     assert(save.data?.result?.script?.title === "M1 API validation result", "saved external result must be returned by save response");
+    assert(save.data?.state?.yamlText?.includes("M1 API validation result"), "saved YAML draft must round-trip in state");
 
     const reload = await fetchJson(base, `/api/workspaces/${createdWorkspaceId}`, { method: "GET" });
     assert(reload.response.status === 200, `workspace reload returned ${reload.response.status}`);
     assert(reload.data?.result?.script?.title === "M1 API validation result", "workspace reload must return externally saved result JSON");
+    assert(reload.data?.state?.resultSource === "manual", "workspace reload must restore resultSource");
   } finally {
     await cleanupWorkspace(createdWorkspaceId);
   }

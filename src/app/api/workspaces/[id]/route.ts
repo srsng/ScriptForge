@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getWorkspace, saveWorkspaceResult } from "@/lib/workspace-data";
+import { getWorkspace, saveWorkspaceState } from "@/lib/workspace-data";
 
 export const runtime = "nodejs";
 
@@ -28,7 +28,10 @@ export async function PUT(request: Request, context: RouteContext) {
   }
 
   try {
-    const result = await saveWorkspaceResult(id, body as Parameters<typeof saveWorkspaceResult>[1]);
+    const input = body as Record<string, unknown>;
+    const result = input.state !== undefined
+      ? await saveWorkspaceState(id, body as Parameters<typeof saveWorkspaceState>[1])
+      : { ok: false as const, status: 400, error: "Expected state payload." };
     if (!result.ok) {
       return NextResponse.json(result, { status: result.status });
     }

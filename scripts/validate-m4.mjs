@@ -74,6 +74,7 @@ assert.match(generate, /Number\.isInteger/, "generation request normalization mu
 assert.match(generate, /throw new Error\([^)]*MIN_CHAPTER_COUNT/s, "generation must reject insufficient chapter input instead of returning invalid fallback");
 assert.match(fallback, /request\.chapters\.length < MIN_CHAPTER_COUNT/, "fallback builder must guard its minimum chapter precondition");
 assert.doesNotMatch(workbench, /\?\s*\{\s*workspaceId:\s*activeWorkspace\.id,\s*persist:\s*true\s*\}/s, "workbench must not generate from stale workspace-only payload");
+assert.doesNotMatch(workbench, /persist:/, "MVP workbench must persist full state through workspace API, not generate result-only persistence");
 assert.match(workbench, /const currentGenerationRequest: GenerationRequest = useMemo\(\(\) => \(\{[\s\S]*chapters:\s*normalization\.chapters/s, "workbench must build the generation request from current normalized chapters");
 assert.match(workbench, /request:\s*currentGenerationRequest/, "workbench must send the currently edited generation request");
 assert.match(page, /WorkbenchShell/, "page.tsx must delegate to the M6 workbench shell");
