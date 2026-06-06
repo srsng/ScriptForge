@@ -203,6 +203,7 @@ export type WorkspaceState = {
   result: ScriptForgeDocument | null;
   resultSource: WorkspaceResultSource;
   yamlText: string;
+  lastAppliedYamlText?: string;
   yamlValidation: unknown | null;
   repairResult: unknown | null;
   generationDiagnostics: unknown[];

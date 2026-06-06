@@ -172,8 +172,17 @@ assertContains("src/components/workbench/YamlEditorPanel.tsx", [
   "下载 JSON",
   "下载 MD",
   "导出已阻止",
+  "exportBlockedReason",
 ]);
 console.log("  ✓ YAML editor exposes validation-gated export");
+
+assertContains("src/components/workbench/WorkbenchShell.tsx", [
+  "yamlHasDraftChanges",
+  "yamlHasValidationErrors",
+  "yamlExportBlockedReason",
+  "YAML 有未应用草稿",
+]);
+console.log("  ✓ YAML export blocks dirty or invalid drafts");
 
 const pageText = read("src/app/page.tsx");
 assert.ok(
