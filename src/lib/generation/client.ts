@@ -12,6 +12,10 @@ export type ModelClientResult = {
   status?: number;
 };
 
+export type ModelRequestOptions = {
+  timeoutMs?: number;
+};
+
 type ProviderName = "main" | "backup";
 
 type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -160,7 +164,15 @@ function parsePotentialEventStreamBody(text: string): unknown {
   return lastJsonChunk ? JSON.parse(lastJsonChunk) : null;
 }
 
-async function requestViaRawFetch(provider: ProviderConfig, messages: PromptMessage[]): Promise<ModelClientResult> {
+async function requestViaRawFetch(
+  provider: ProviderConfig,
+  messages: PromptMessage[],
+  options: ModelRequestOptions = {},
+): Promise<ModelClientResult> {
+  const requestedTimeoutMs = options.timeoutMs;
+  const timeoutMs = typeof requestedTimeoutMs === "number" && Number.isInteger(requestedTimeoutMs) && requestedTimeoutMs > 0
+    ? requestedTimeoutMs
+    : DEFAULT_TIMEOUT_MS;
   const response = await fetch(`${provider.baseURL}/chat/completions`, {
     method: "POST",
     headers: {
@@ -168,7 +180,7 @@ async function requestViaRawFetch(provider: ProviderConfig, messages: PromptMess
       "Content-Type": "application/json",
     },
     body: JSON.stringify(buildChatCompletionRequest(provider, messages)),
-    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const text = await response.text();
   if (!response.ok) {
@@ -188,9 +200,13 @@ async function requestViaRawFetch(provider: ProviderConfig, messages: PromptMess
   return { ok: true, model: provider.model, provider: provider.name, content };
 }
 
-async function requestFromProvider(provider: ProviderConfig, messages: PromptMessage[]): Promise<ModelClientResult> {
+async function requestFromProvider(
+  provider: ProviderConfig,
+  messages: PromptMessage[],
+  options: ModelRequestOptions = {},
+): Promise<ModelClientResult> {
   try {
-    return await requestViaRawFetch(provider, messages);
+    return await requestViaRawFetch(provider, messages, options);
   } catch (error) {
     return {
       ok: false,
@@ -201,7 +217,10 @@ async function requestFromProvider(provider: ProviderConfig, messages: PromptMes
   }
 }
 
-export async function requestJsonFromModel(messages: PromptMessage[]): Promise<ModelClientResult> {
+export async function requestJsonFromModel(
+  messages: PromptMessage[],
+  options: ModelRequestOptions = {},
+): Promise<ModelClientResult> {
   const providers = getConfiguredProviders();
   if (providers.length === 0) {
     return {
@@ -213,7 +232,7 @@ export async function requestJsonFromModel(messages: PromptMessage[]): Promise<M
 
   const failures: ModelClientResult[] = [];
   for (const provider of providers) {
-    const result = await requestFromProvider(provider, messages);
+    const result = await requestFromProvider(provider, messages, options);
     if (result.ok) return result;
     failures.push(result);
   }

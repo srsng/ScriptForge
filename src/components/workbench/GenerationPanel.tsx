@@ -6,6 +6,7 @@ type GenerateState = "idle" | "loading" | "success" | "needs_revision" | "error"
 
 type GenerationPanelProps = {
   generateState: GenerateState;
+  generationElapsedSeconds: number;
   generationError: string;
   diagnostics: GenerationDiagnostic[];
   resultSource: ResultSource;
@@ -33,6 +34,7 @@ function generateStateLabel(state: GenerateState): string {
 
 export function GenerationPanel({
   generateState,
+  generationElapsedSeconds,
   generationError,
   diagnostics,
   resultSource,
@@ -41,6 +43,8 @@ export function GenerationPanel({
   onGenerate,
 }: GenerationPanelProps) {
   const capacitySummary = diagnostics.find((item) => item.message.startsWith("CAPACITY_SUMMARY:"));
+  const loadingLabel = `生成中...(${generationElapsedSeconds}s)`;
+  const stateLabel = generateState === "loading" ? loadingLabel : generateStateLabel(generateState);
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
@@ -55,7 +59,7 @@ export function GenerationPanel({
           onClick={onGenerate}
           type="button"
         >
-          {generateState === "loading" ? "生成中..." : "AI 生成剧本初稿"}
+          {generateState === "loading" ? loadingLabel : "AI 生成剧本初稿"}
         </button>
       </div>
 
@@ -71,7 +75,7 @@ export function GenerationPanel({
       <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">
         <div className="rounded-md border border-zinc-200 p-3">
           <div className="font-medium">状态</div>
-          <div className="mt-1 text-zinc-600">{generateStateLabel(generateState)}</div>
+          <div className="mt-1 text-zinc-600">{stateLabel}</div>
         </div>
         <div className="rounded-md border border-zinc-200 p-3">
           <div className="font-medium">结果来源</div>

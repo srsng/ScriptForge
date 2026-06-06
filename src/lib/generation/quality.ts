@@ -15,6 +15,7 @@ const ERROR_DURATION_FILL_RATIO = 0.6;
 const ERROR_DIALOGUE_FILL_RATIO = 0.6;
 const ERROR_TEXT_FILL_RATIO = 0.6;
 const VERY_SHORT_SCENE_BEATS = 3;
+const CORE_BEAT_FUNCTIONS = new Set(["pressure", "reveal", "turn", "reaction"]);
 
 export type ScriptCapacityBudget = {
   targetDurationMinutes: number;
@@ -34,6 +35,11 @@ export type ScriptCapacitySummary = {
   resultOnlyActions: number;
   dryDialogues: number;
   possibleArtificialSceneSplits: number;
+  underusedFacts: number;
+  scenesWithoutTurningPoint: number;
+  staticSceneArcs: number;
+  scenesWithoutDialogueExchange: number;
+  scenesMissingCoreBeatFunction: number;
 };
 
 function qualityDiagnostic(message: string, severity: "info" | "warning" | "error"): GenerationDiagnostic {
@@ -134,7 +140,51 @@ function isPossiblyArtificialSplit(current: ScriptScene, next: ScriptScene): boo
   const sameTime = normalizeSceneTime(current.time) === normalizeSceneTime(next.time);
   const sharedCharacters = overlapRatio(current.characters, next.characters) >= 0.5;
   const sharedSources = overlapRatio(current.source_chapters, next.source_chapters) > 0;
-  return sameLocation && sameTime && sharedCharacters && sharedSources;
+  const sameObjective = current.scene_card.objective.trim() === next.scene_card.objective.trim();
+  const sameOpposition = current.scene_card.opposition.trim() === next.scene_card.opposition.trim();
+  return sameLocation && sameTime && sharedCharacters && sharedSources && (sameObjective || sameOpposition);
+}
+
+function collectFactIds(document: ScriptForgeDocument): Set<string> {
+  return new Set(document.script.source.chapters.flatMap((chapter) => chapter.key_facts.map((fact) => fact.id)));
+}
+
+function collectUsedFactIds(document: ScriptForgeDocument): Set<string> {
+  const used = new Set<string>();
+  for (const scene of document.script.scenes) {
+    for (const ref of scene.source_refs) used.add(ref);
+    for (const beat of scene.beats) {
+      for (const ref of beat.source_refs) used.add(ref);
+    }
+  }
+  return used;
+}
+
+function hasTurningPoint(scene: ScriptScene): boolean {
+  return scene.scene_card.turning_point.replace(/\s+/g, "").length >= 12;
+}
+
+function hasStaticSceneArc(scene: ScriptScene): boolean {
+  const entry = scene.scene_card.entry_state.replace(/\s+/g, "");
+  const exit = scene.scene_card.exit_state.replace(/\s+/g, "");
+  return entry.length < 10 || exit.length < 10 || entry === exit;
+}
+
+function hasDialogueExchange(scene: ScriptScene): boolean {
+  const speakers = scene.beats
+    .filter((beat) => beat.type === "dialogue")
+    .map((beat) => beat.character);
+  if (new Set(speakers).size < 2) return false;
+
+  let speakerSwitches = 0;
+  for (let index = 1; index < speakers.length; index += 1) {
+    if (speakers[index] !== speakers[index - 1]) speakerSwitches += 1;
+  }
+  return speakerSwitches >= 2;
+}
+
+function hasCoreBeatFunction(scene: ScriptScene): boolean {
+  return scene.beats.some((beat) => CORE_BEAT_FUNCTIONS.has(beat.function));
 }
 
 export function summarizeScriptCapacity(document: ScriptForgeDocument): ScriptCapacitySummary {
@@ -150,6 +200,13 @@ export function summarizeScriptCapacity(document: ScriptForgeDocument): ScriptCa
     .slice(0, -1)
     .filter((scene, index) => isPossiblyArtificialSplit(scene, scenes[index + 1]))
     .length;
+  const allFactIds = collectFactIds(document);
+  const usedFactIds = collectUsedFactIds(document);
+  const underusedFacts = [...allFactIds].filter((factId) => !usedFactIds.has(factId)).length;
+  const scenesWithoutTurningPoint = scenes.filter((scene) => !hasTurningPoint(scene)).length;
+  const staticSceneArcs = scenes.filter(hasStaticSceneArc).length;
+  const scenesWithoutDialogueExchange = scenes.filter((scene) => !hasDialogueExchange(scene)).length;
+  const scenesMissingCoreBeatFunction = scenes.filter((scene) => !hasCoreBeatFunction(scene)).length;
 
   return {
     sceneCount: scenes.length,
@@ -161,6 +218,11 @@ export function summarizeScriptCapacity(document: ScriptForgeDocument): ScriptCa
     resultOnlyActions,
     dryDialogues,
     possibleArtificialSceneSplits,
+    underusedFacts,
+    scenesWithoutTurningPoint,
+    staticSceneArcs,
+    scenesWithoutDialogueExchange,
+    scenesMissingCoreBeatFunction,
   };
 }
 
@@ -177,6 +239,7 @@ export function evaluateScriptDensity(
   const dialogueFill = fillRatio(summary.dialogueBeats, budget.minDialogueBeats);
   const textFill = fillRatio(summary.scriptChars, budget.minScriptChars);
   const durationFill = fillRatio(summary.estimatedCapacityMinutes, budget.targetDurationMinutes);
+  const totalFacts = collectFactIds(document).size;
 
   diagnostics.push(qualityDiagnostic(
     `CAPACITY_SUMMARY: 目标 ${budget.targetDurationMinutes} 分钟；当前 ${summary.sceneCount} 场、${summary.totalBeats}/${budget.minTotalBeats} beats（${percent(beatFill)}%）、${summary.dialogueBeats}/${budget.minDialogueBeats} 条 dialogue beats（${percent(dialogueFill)}%）、${summary.scriptChars}/${budget.minScriptChars} 字（${percent(textFill)}%），估算容量 ${summary.estimatedCapacityMinutes.toFixed(1)}/${budget.targetDurationMinutes} 分钟（${percent(durationFill)}%）。场景数仅供参考，按自然场景边界判断。`,
@@ -285,6 +348,52 @@ export function evaluateScriptDensity(
     diagnostics.push(qualityDiagnostic(
       `POSSIBLE_ARTIFICIAL_SCENE_SPLIT: ${summary.possibleArtificialSceneSplits} 组相邻场景地点、时间、人物和来源高度连续，疑似为了凑数量拆分；建议按自然场景边界合并或重组。`,
       "warning",
+    ));
+  }
+
+  if (totalFacts > 0 && summary.underusedFacts > 0) {
+    const ratio = summary.underusedFacts / totalFacts;
+    diagnostics.push(qualityDiagnostic(
+      `FACT_REF_UNDERUSED: ${summary.underusedFacts}/${totalFacts} 条 key_facts 没有被 scene.source_refs 或 beats[].source_refs 使用，原文事实没有充分进入剧本。`,
+      ratio >= 0.35 ? "error" : "warning",
+    ));
+  }
+
+  const unusedChapterIds = document.script.source.chapters
+    .filter((chapter) => !scenes.some((scene) => scene.source_chapters.includes(chapter.id)))
+    .map((chapter) => chapter.id);
+  if (unusedChapterIds.length > 0) {
+    diagnostics.push(qualityDiagnostic(
+      `SOURCE_UNDERUSED: ${unusedChapterIds.join("、")} 只出现在 source 中，未被任何 scene.source_chapters 使用。`,
+      "error",
+    ));
+  }
+
+  if (summary.scenesWithoutTurningPoint > 0) {
+    diagnostics.push(qualityDiagnostic(
+      `SCENE_NO_TURNING_POINT: ${summary.scenesWithoutTurningPoint}/${summary.sceneCount} 个 scene 缺少明确 scene_card.turning_point，场景更像情节说明。`,
+      summary.scenesWithoutTurningPoint > summary.sceneCount / 2 ? "error" : "warning",
+    ));
+  }
+
+  if (summary.staticSceneArcs > 0) {
+    diagnostics.push(qualityDiagnostic(
+      `SCENE_STATIC_ARC: ${summary.staticSceneArcs}/${summary.sceneCount} 个 scene 的 entry_state 与 exit_state 没有明显变化。`,
+      summary.staticSceneArcs > summary.sceneCount / 2 ? "error" : "warning",
+    ));
+  }
+
+  if (summary.scenesWithoutDialogueExchange > 0) {
+    diagnostics.push(qualityDiagnostic(
+      `DIALOGUE_NO_EXCHANGE: ${summary.scenesWithoutDialogueExchange}/${summary.sceneCount} 个 scene 缺少至少两个角色的对白攻防轮次。`,
+      summary.scenesWithoutDialogueExchange > summary.sceneCount / 2 ? "error" : "warning",
+    ));
+  }
+
+  if (summary.scenesMissingCoreBeatFunction > 0) {
+    diagnostics.push(qualityDiagnostic(
+      `BEAT_FUNCTION_MISSING_ARC: ${summary.scenesMissingCoreBeatFunction}/${summary.sceneCount} 个 scene 的 beats 缺少 pressure/reveal/turn/reaction 等推进功能。`,
+      summary.scenesMissingCoreBeatFunction > summary.sceneCount / 2 ? "error" : "warning",
     ));
   }
 

@@ -3,7 +3,7 @@ import type { ScriptForgeDocument } from "@/types/scriptforge";
 /** Valid demo document matching yaml-schema.md example. */
 export const validDocument: ScriptForgeDocument = {
   script: {
-    schema_version: "1.0",
+    schema_version: "1.1",
     title: "雨夜档案",
     metadata: {
       language: "zh-CN",
@@ -16,9 +16,36 @@ export const validDocument: ScriptForgeDocument = {
     source: {
       type: "novel",
       chapters: [
-        { id: "ch_001", title: "第一章 雨夜", summary: "林舟收到父亲留下的匿名信，前往旧报社。" },
-        { id: "ch_002", title: "第二章 档案室", summary: "林舟在地下档案室发现失踪案卷宗。" },
-        { id: "ch_003", title: "第三章 旧照片", summary: "一张旧照片揭示管理员与父亲曾经相识。" },
+        {
+          id: "ch_001",
+          title: "第一章 雨夜",
+          summary: "林舟收到父亲留下的匿名信，前往旧报社。",
+          key_facts: [
+            { id: "fact_001", type: "event", content: "林舟在雨夜收到一封没有署名的信。" },
+            { id: "fact_002", type: "character_goal", content: "林舟想查清父亲失踪前留下的线索。" },
+            { id: "fact_003", type: "location", content: "信中指向一座已经停用的旧报社地下室。" },
+          ],
+        },
+        {
+          id: "ch_002",
+          title: "第二章 档案室",
+          summary: "林舟在地下档案室发现失踪案卷宗。",
+          key_facts: [
+            { id: "fact_004", type: "event", content: "林舟进入地下档案室并发现失踪案卷宗。" },
+            { id: "fact_005", type: "object", content: "卷宗封皮被潮气泡软，夹着父亲当年的采访卡。" },
+            { id: "fact_006", type: "conflict", content: "管理员许曼试图阻止林舟继续翻查档案。" },
+          ],
+        },
+        {
+          id: "ch_003",
+          title: "第三章 旧照片",
+          summary: "一张旧照片揭示管理员与父亲曾经相识。",
+          key_facts: [
+            { id: "fact_007", type: "information", content: "旧照片显示许曼与林舟父亲曾经同框。" },
+            { id: "fact_008", type: "relationship", content: "许曼隐瞒了自己认识林舟父亲的事实。" },
+            { id: "fact_009", type: "emotion", content: "林舟意识到许曼的沉默不是冷漠，而是戒备。" },
+          ],
+        },
       ],
     },
     characters: [
@@ -54,17 +81,29 @@ export const validDocument: ScriptForgeDocument = {
       {
         id: "scene_001",
         title: "铁门之后",
-        source_chapters: ["ch_001"],
+        source_chapters: ["ch_001", "ch_002", "ch_003"],
+        source_refs: ["fact_001", "fact_002", "fact_004", "fact_006", "fact_007", "fact_008"],
         location: "loc_001",
         time: "night",
         characters: ["char_001", "char_002"],
+        scene_card: {
+          objective: "林舟想进入档案室确认父亲留下的线索。",
+          opposition: "许曼用警告、沉默和反问阻止他继续深入。",
+          entry_state: "林舟带着怀疑和急迫推门进入，许曼保持戒备。",
+          turning_point: "林舟在卷宗里看见旧照片，确认许曼认识父亲。",
+          exit_state: "林舟获得新的追查方向，许曼的隐瞒被迫暴露。",
+          visual_atmosphere: "地下室潮湿昏暗，铁门回声、手电光和旧纸气味压住两人的呼吸。",
+        },
         dramatic_purpose: "让主角进入核心调查地点。",
         conflict: "主角害怕未知，但必须继续追查；管理员试图阻止他继续深入。",
         beats: [
-          { type: "action", content: "林舟推开地下室铁门，潮气扑面而来。" },
-          { type: "dialogue", character: "char_002", content: "你父亲如果真想让你来，就不会只留一封没有署名的信。" },
-          { type: "narration", content: "他终于来到父亲信中提到的地方。" },
+          { type: "action", function: "establish", source_refs: ["fact_001", "fact_003"], content: "林舟推开地下室铁门，潮气扑面而来，手电光先扫过墙上的旧报纸，才停在档案柜的铜牌上。" },
+          { type: "dialogue", character: "char_002", function: "evade", source_refs: ["fact_006"], content: "许曼没有让开，只把钥匙攥进掌心：你父亲如果真想让你来，就不会只留一封没有署名的信。" },
+          { type: "dialogue", character: "char_001", function: "pressure", source_refs: ["fact_002", "fact_004"], content: "林舟盯住她攥紧的手：所以你知道这封信，也知道他最后查到了这里。" },
+          { type: "action", function: "reveal", source_refs: ["fact_005", "fact_007"], content: "他抽出潮软卷宗，旧照片从夹页里滑落，照片背面父亲的名字被水迹泡开，许曼的脸色终于变了。" },
+          { type: "dialogue", character: "char_002", function: "turn", source_refs: ["fact_008", "fact_009"], content: "许曼移开视线，声音压得很低：有些事他没告诉你，是因为知道你一定会追到这里。" },
         ],
+        adaptation_notes: ["合并三章线索，把匿名信、档案室和旧照片压成一场有转折的调查对手戏。"],
       },
     ],
     adaptation_report: {

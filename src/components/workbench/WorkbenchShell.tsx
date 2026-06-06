@@ -84,6 +84,8 @@ export function WorkbenchShell() {
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [message, setMessage] = useState("准备输入");
   const [generateState, setGenerateState] = useState<GenerateState>("idle");
+  const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null);
+  const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
   const [generationDiagnostics, setGenerationDiagnostics] = useState<GenerationDiagnostic[]>([]);
   const [generationError, setGenerationError] = useState("");
   const [yamlText, setYamlText] = useState("");
@@ -108,10 +110,23 @@ export function WorkbenchShell() {
   const canGenerate = normalization.isValid && generateState !== "loading";
   const canExport = currentDocument !== null;
   const yamlExportBlocked = yamlValidation !== null && !yamlValidation.valid;
+  const displayMessage = generateState === "loading" ? `生成中...(${generationElapsedSeconds}s)` : message;
+
+  useEffect(() => {
+    if (generateState !== "loading" || generationStartedAt === null) return;
+
+    const updateElapsedSeconds = () => {
+      setGenerationElapsedSeconds(Math.max(0, Math.floor((Date.now() - generationStartedAt) / 1000)));
+    };
+
+    updateElapsedSeconds();
+    const timerId = window.setInterval(updateElapsedSeconds, 1000);
+    return () => window.clearInterval(timerId);
+  }, [generateState, generationStartedAt]);
 
   function buildWorkspaceState(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
     return {
-      schema_version: "1.0",
+      schema_version: "1.1",
       title,
       rawText: rawInput,
       request: currentGenerationRequest,
@@ -249,6 +264,8 @@ export function WorkbenchShell() {
   }
 
   async function generateDraft() {
+    setGenerationStartedAt(Date.now());
+    setGenerationElapsedSeconds(0);
     setGenerateState("loading");
     setGenerationError("");
     setGenerationDiagnostics([]);
@@ -304,6 +321,8 @@ export function WorkbenchShell() {
       setGenerationError(errorMessage);
       setGenerateState("error");
       setMessage(errorMessage);
+    } finally {
+      setGenerationStartedAt(null);
     }
   }
 
@@ -562,7 +581,7 @@ export function WorkbenchShell() {
               </div>
             </div>
             <div className="grid gap-2 text-sm sm:grid-cols-3 lg:w-[34rem]">
-              <StatusTile label="Message" value={message} tone="text-emerald-700" />
+              <StatusTile label="Message" value={displayMessage} tone="text-emerald-700" />
               <StatusTile label="Result" value={resultSourceLabel(resultSource)} />
               <StatusTile label="Validation" value={yamlValidation ? yamlValidation.status : "not checked"} />
             </div>
@@ -615,6 +634,7 @@ export function WorkbenchShell() {
 
             <GenerationPanel
               generateState={generateState}
+              generationElapsedSeconds={generationElapsedSeconds}
               generationError={generationError}
               diagnostics={generationDiagnostics}
               resultSource={resultSource}
@@ -660,7 +680,8 @@ export function WorkbenchShell() {
           </div>
 
           <aside className="space-y-5">
-            <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+            {/* 暂时隐藏结果 JSON */}
+            {/* <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
               <h2 className="text-lg font-semibold">结果 JSON</h2>
               <p className="mt-1 text-sm text-zinc-600">{activeWorkspace ? `当前工作区 ${activeWorkspace.id}` : "可直接生成；保存工作区不是必需步骤"}</p>
               <textarea
@@ -670,7 +691,7 @@ export function WorkbenchShell() {
                 spellCheck={false}
                 value={resultText}
               />
-            </section>
+            </section> */}
 
             <WorkspaceList
               workspaces={workspaces}

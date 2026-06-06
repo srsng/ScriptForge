@@ -10,6 +10,7 @@ import type {
   ScriptForgeDocument,
   ScriptCharacter,
   ScriptBeat,
+  SourceFactType,
 } from "@/types/scriptforge";
 import { dump as dumpYaml, load as parseYaml } from "js-yaml";
 
@@ -128,9 +129,10 @@ export function repairScriptForgeDocument(
   const characterIds = collectStringIds(script.characters);
   const locationIds = collectStringIds(script.locations);
   const chapterIds = collectStringIds((script.source as Record<string, unknown> | undefined)?.chapters);
+  const factIds = collectFactIds((script.source as Record<string, unknown> | undefined)?.chapters);
 
   for (const err of referenceErrors) {
-    const fix = fixReferenceError(script, err, characterIds, locationIds, chapterIds);
+    const fix = fixReferenceError(script, err, characterIds, locationIds, chapterIds, factIds);
     if (fix) {
       appliedFixes.push(fix);
     } else {
@@ -253,6 +255,25 @@ function collectStringIds(items: unknown): Set<string> {
   return ids;
 }
 
+function collectFactIds(chapters: unknown): Set<string> {
+  const ids = new Set<string>();
+  if (!Array.isArray(chapters)) return ids;
+
+  for (const chapter of chapters) {
+    if (!chapter || typeof chapter !== "object") continue;
+    const facts = (chapter as Record<string, unknown>).key_facts;
+    if (!Array.isArray(facts)) continue;
+
+    for (const fact of facts) {
+      if (!fact || typeof fact !== "object") continue;
+      const id = (fact as Record<string, unknown>).id;
+      if (typeof id === "string" && id.trim().length > 0) ids.add(id);
+    }
+  }
+
+  return ids;
+}
+
 function mergeValidationErrors(...groups: ValidationError[][]): ValidationError[] {
   const merged: ValidationError[] = [];
   const seen = new Set<string>();
@@ -291,6 +312,7 @@ function collectRepairableReferenceErrors(script: Record<string, unknown>): Vali
   const locationIds = collectStringIds(script.locations);
   const source = script.source as Record<string, unknown> | undefined;
   const chapterIds = collectStringIds(source?.chapters);
+  const factIds = collectFactIds(source?.chapters);
 
   const scenes = Array.isArray(script.scenes) ? script.scenes as Record<string, unknown>[] : [];
   for (const [si, scene] of scenes.entries()) {
@@ -324,6 +346,16 @@ function collectRepairableReferenceErrors(script: Record<string, unknown>): Vali
       }
     }
 
+    const sourceRefs = Array.isArray(scene.source_refs) ? scene.source_refs : [];
+    for (const [ri, factId] of sourceRefs.entries()) {
+      if (typeof factId === "string" && factIds.size > 0 && !factIds.has(factId)) {
+        errors.push(repairReferenceError(
+          `$.script.scenes[${si}].source_refs[${ri}]`,
+          `场景来源事实 "${factId}" 不在 source.chapters[].key_facts 中。`,
+        ));
+      }
+    }
+
     const beats = Array.isArray(scene.beats) ? scene.beats as Record<string, unknown>[] : [];
     for (const [bi, beat] of beats.entries()) {
       if (!beat || typeof beat !== "object") continue;
@@ -334,6 +366,16 @@ function collectRepairableReferenceErrors(script: Record<string, unknown>): Vali
           `$.script.scenes[${si}].beats[${bi}].character`,
           `对白角色 "${character}" 不在 characters 中。`,
         ));
+      }
+
+      const beatSourceRefs = Array.isArray(beat.source_refs) ? beat.source_refs : [];
+      for (const [ri, factId] of beatSourceRefs.entries()) {
+        if (typeof factId === "string" && factIds.size > 0 && !factIds.has(factId)) {
+          errors.push(repairReferenceError(
+            `$.script.scenes[${si}].beats[${bi}].source_refs[${ri}]`,
+            `beat 来源事实 "${factId}" 不在 source.chapters[].key_facts 中。`,
+          ));
+        }
       }
     }
   }
@@ -416,7 +458,7 @@ function fixMissingRequiredField(
 
   // Top-level script required fields
   const scriptRequiredFields: Record<string, unknown> = {
-    schema_version: "1.0",
+    schema_version: "1.1",
     title: "未命名剧本",
     metadata: {
       language: "zh-CN",
@@ -496,9 +538,18 @@ function fixMissingRequiredField(
       id: `scene_${String(idx + 1).padStart(3, "0")}`,
       title: `场景 ${idx + 1}`,
       source_chapters: [],
+      source_refs: [],
       location: "",
       time: "未知",
       characters: [],
+      scene_card: {
+        objective: "需补充场景目标。",
+        opposition: "需补充场景阻碍。",
+        entry_state: "需补充入场状态。",
+        turning_point: "需补充场内转折。",
+        exit_state: "需补充离场状态。",
+        visual_atmosphere: "需补充场景氛围。",
+      },
       dramatic_purpose: "需补充戏剧目的。",
       conflict: "需补充冲突。",
       beats: [],
@@ -601,6 +652,11 @@ function fixMissingRequiredField(
       id: `ch_${String(idx + 1).padStart(3, "0")}`,
       title: `第${idx + 1}章`,
       summary: "需补充摘要。",
+      key_facts: [
+        { id: `fact_${String(idx * 3 + 1).padStart(3, "0")}`, type: "event" satisfies SourceFactType, content: "需补充原文事件事实。" },
+        { id: `fact_${String(idx * 3 + 2).padStart(3, "0")}`, type: "character_goal" satisfies SourceFactType, content: "需补充人物目标事实。" },
+        { id: `fact_${String(idx * 3 + 3).padStart(3, "0")}`, type: "conflict" satisfies SourceFactType, content: "需补充冲突事实。" },
+      ],
     };
     if (missingProp && missingProp in chDefaults) {
       ch[missingProp] = deepClone(chDefaults[missingProp]);
@@ -641,7 +697,7 @@ function fixTypeError(
       }
     }
     // String where array expected
-    if (fieldName === "characters" || fieldName === "source_chapters" || fieldName === "main_conflicts" || fieldName === "omitted_or_compressed" || fieldName === "revision_suggestions") {
+    if (fieldName === "characters" || fieldName === "source_chapters" || fieldName === "source_refs" || fieldName === "main_conflicts" || fieldName === "omitted_or_compressed" || fieldName === "revision_suggestions") {
       (parent as Record<string, unknown>)[fieldName] = [value];
       return { path: err.path, type: "fix_type", message: `将字符串 "${value}" 转为数组。` };
     }
@@ -701,6 +757,7 @@ function fixReferenceError(
   characterIds: Set<string>,
   locationIds: Set<string>,
   chapterIds: Set<string>,
+  factIds: Set<string>,
 ): AppliedFixDraft | null {
   const path = normalizeRepairPath(err.path);
   // scene.location reference
@@ -777,6 +834,26 @@ function fixReferenceError(
     return null;
   }
 
+  const sceneSourceRefMatch = path.match(/scenes\[(\d+)\]\.source_refs\[(\d+)\]/);
+  if (sceneSourceRefMatch) {
+    const sIdx = Number(sceneSourceRefMatch[1]);
+    const rIdx = Number(sceneSourceRefMatch[2]);
+    const scenes = script.scenes as Record<string, unknown>[] ?? [];
+    const scene = scenes[sIdx] as Record<string, unknown> ?? {};
+    const refs = scene.source_refs as string[] ?? [];
+    const badRef = refs[rIdx];
+    if (factIds.size > 0 && badRef) {
+      const firstFact = [...factIds][0];
+      refs[rIdx] = firstFact;
+      return {
+        path,
+        type: "fix_reference",
+        message: `场景来源事实 "${badRef}" 不在 key_facts 中，已修正为第一个事实 "${firstFact}"。`,
+      };
+    }
+    return null;
+  }
+
   // dialogue beat.character reference
   const beatCharMatch = path.match(/scenes\[(\d+)\]\.beats\[(\d+)\]\.character/);
   if (beatCharMatch) {
@@ -805,6 +882,29 @@ function fixReferenceError(
         path: path,
         type: "fix_reference",
         message: `对白角色 "${badChar}" 不在 characters 中，已修正为第一个角色 "${firstChar}"。`,
+      };
+    }
+    return null;
+  }
+
+  const beatSourceRefMatch = path.match(/scenes\[(\d+)\]\.beats\[(\d+)\]\.source_refs\[(\d+)\]/);
+  if (beatSourceRefMatch) {
+    const sIdx = Number(beatSourceRefMatch[1]);
+    const bIdx = Number(beatSourceRefMatch[2]);
+    const rIdx = Number(beatSourceRefMatch[3]);
+    const scenes = script.scenes as Record<string, unknown>[] ?? [];
+    const scene = scenes[sIdx] as Record<string, unknown> ?? {};
+    const beats = scene.beats as Record<string, unknown>[] ?? [];
+    const beat = beats[bIdx] as Record<string, unknown> ?? {};
+    const refs = beat.source_refs as string[] ?? [];
+    const badRef = refs[rIdx];
+    if (factIds.size > 0 && badRef) {
+      const firstFact = [...factIds][0];
+      refs[rIdx] = firstFact;
+      return {
+        path,
+        type: "fix_reference",
+        message: `beat 来源事实 "${badRef}" 不在 key_facts 中，已修正为第一个事实 "${firstFact}"。`,
       };
     }
     return null;

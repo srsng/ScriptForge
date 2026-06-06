@@ -5,7 +5,7 @@
  *
  * 构建一个带多种可修复错误的脚本文档，验证：
  *   1. repair API 能接收并修复 schema 必填缺失
- *   2. repair API 能修复引用错误（location、characters、beat.character、relationship.target、source_chapters）
+ *   2. repair API 能修复引用错误（location、characters、beat.character、relationship.target、source_chapters、source_refs）
  *   3. 修复后再次 validate 必须无 error
  *   4. repair 必须幂等
  *   5. YAML 格式和裸 script 输入也能被修复
@@ -22,7 +22,7 @@ const { dump: dumpYaml } = require("js-yaml");
 function buildDamagedDocument() {
   return {
     script: {
-      schema_version: "1.0",
+      schema_version: "1.1",
       title: "M5测试剧本",
       metadata: {
         language: "zh-CN",
@@ -35,9 +35,21 @@ function buildDamagedDocument() {
       source: {
         type: "novel",
         chapters: [
-          { id: "ch_001", title: "第一章", summary: "主角收到任务。" },
-          { id: "ch_002", title: "第二章", summary: "反派设置阻碍。" },
-          { id: "ch_003", title: "第三章", summary: "双方正面交锋。" },
+          { id: "ch_001", title: "第一章", summary: "主角收到任务。", key_facts: [
+            { id: "fact_001", type: "event", content: "主角收到任务。" },
+            { id: "fact_002", type: "character_goal", content: "主角想完成任务。" },
+            { id: "fact_003", type: "conflict", content: "反派阻止主角。" },
+          ] },
+          { id: "ch_002", title: "第二章", summary: "反派设置阻碍。", key_facts: [
+            { id: "fact_004", type: "event", content: "反派设置阻碍。" },
+            { id: "fact_005", type: "object", content: "洞口有机关。" },
+            { id: "fact_006", type: "relationship", content: "双方互相试探。" },
+          ] },
+          { id: "ch_003", title: "第三章", summary: "双方正面交锋。", key_facts: [
+            { id: "fact_007", type: "information", content: "任务真相暴露。" },
+            { id: "fact_008", type: "emotion", content: "主角从犹豫到主动。" },
+            { id: "fact_009", type: "location", content: "交锋发生在山洞。" },
+          ] },
         ],
       },
       characters: [
@@ -77,19 +89,32 @@ function buildDamagedDocument() {
           id: "scene_001",
           // title missing intentionally
           source_chapters: ["ch_999"], // invalid reference — not in source.chapters
+          source_refs: ["fact_999"], // invalid reference — not in key_facts
           location: "loc_999", // invalid reference
           characters: ["char_999"], // invalid reference
           time: "白天",
+          scene_card: {
+            objective: "主角想进入山洞确认任务。",
+            opposition: "反派用言语和机关阻止。",
+            entry_state: "主角仍在犹豫。",
+            turning_point: "机关暴露真正入口。",
+            exit_state: "主角决定主动进入。",
+            visual_atmosphere: "冷色光线压在狭窄洞口。",
+          },
           dramatic_purpose: "介绍",
           conflict: "无",
           beats: [
             {
               type: "dialogue",
               character: "char_999", // invalid reference
+              function: "probe",
+              source_refs: ["fact_999"], // invalid reference
               content: "你好",
             },
             {
               type: "action",
+              function: "establish",
+              source_refs: ["fact_001"],
               content: "英雄走进山洞",
               // beat has no character — valid for action
             },
@@ -99,15 +124,26 @@ function buildDamagedDocument() {
           id: "scene_002",
           title: "第二场景",
           source_chapters: ["ch_001"], // valid
+          source_refs: ["fact_001"], // valid
           location: "loc_001", // valid
           characters: ["char_001"], // valid
           time: "夜晚",
+          scene_card: {
+            objective: "主角想确认入口。",
+            opposition: "环境阻碍行动。",
+            entry_state: "主角谨慎靠近。",
+            turning_point: "入口机关响动。",
+            exit_state: "主角确认入口存在。",
+            visual_atmosphere: "夜色压低视线。",
+          },
           dramatic_purpose: "发展",
           conflict: "轻微",
           beats: [
             {
               type: "dialogue",
               character: "char_001", // valid
+              function: "reaction",
+              source_refs: ["fact_002"],
               content: "我来了",
             },
           ],
@@ -176,7 +212,7 @@ console.log(`  Applied fixes: ${repairResult.appliedFixes.length}`);
 console.log(`  Post-repair diagnostics: ${repairResult.diagnostics.length}`);
 
 assert.equal(repairResult.status, "ok", "Repair should fully fix the damaged document");
-assert.equal(repairResult.appliedFixes.length, 6, "Should apply one fix per damaged field");
+assert.equal(repairResult.appliedFixes.length, 8, "Should apply one fix per damaged field");
 assert.equal(repairResult.diagnostics.length, 0, "Fully repaired document should have no diagnostics");
 assert.ok(repairResult.document, "Repair should return a document");
 
@@ -221,6 +257,12 @@ const sourceChapterFix = repairResult.appliedFixes.some(
 );
 assert.ok(sourceChapterFix, "Should have fixed invalid source_chapters reference");
 console.log("  ✓ Source chapters reference fixed");
+
+const sourceRefsFix = repairResult.appliedFixes.some(
+  (f) => f.path.includes("source_refs")
+);
+assert.ok(sourceRefsFix, "Should have fixed invalid source_refs reference");
+console.log("  ✓ Source facts reference fixed");
 
 const relationshipFix = repairResult.appliedFixes.some(
   (f) => f.path.includes("relationships") && f.path.includes("target")
@@ -301,7 +343,7 @@ console.log(`  Bare script applied fixes: ${bareScriptRepair.appliedFixes.length
 
 assert.equal(bareScriptRepair.status, "ok", "Bare script repair should be accepted");
 assert.ok(bareScriptRepair.document?.script, "Bare script repair should return wrapped document");
-assert.equal(bareScriptRepair.appliedFixes.length, 6, "Bare script repair should apply the expected fixes");
+assert.equal(bareScriptRepair.appliedFixes.length, 8, "Bare script repair should apply the expected fixes");
 console.log("  ✓ Bare script repair works");
 
 // ── Test 9: Check that status is correct ────────────────────────────────────

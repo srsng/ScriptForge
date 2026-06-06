@@ -9,28 +9,30 @@ ScriptForge 不只是让 AI 生成一段剧本文本，而是把小说改编过�
 ## 主要功能
 
 - 支持输入 3 个章节以上的小说文本。
-- 自动分析人物、地点、关键事件、冲突和人物动机。
-- 自动生成结构化剧本数据。
+- 自动抽取原文事实、人物、地点、关键事件、冲突和人物动机。
+- 自动生成 `ScriptForgeDocument 1.1`：包含来源事实、自然场面卡和密集动作/对白 beats。
 - 输出符合 YAML Schema 的剧本 YAML。
-- 提供 YAML Schema 文档，并说明设计原因。
-- 提供剧本预览、Schema 校验、错误提示和导出能力。
+- 提供 YAML Schema 文档，并说明来源追踪、场面卡和质量门禁的设计原因。
+- 提供剧本预览、Schema 校验、引用校验、质量诊断、错误提示和导出能力。
 
 ## 工作流程
 
 ```text
 小说章节输入
   ↓
-章节摘要与信息抽取
+Source Facts 原文事实抽取
   ↓
-故事圣经 Story Bible
+Dramatic Plan 戏剧计划与自然分场
   ↓
-场景规划 Scene Plan
+Scene Cards 场面卡
   ↓
-结构化剧本 JSON
+Dense Beats 动作/对白节拍
   ↓
-Schema 校验与自动修复
+ScriptForgeDocument 1.1 JSON
   ↓
-YAML 导出与剧本预览
+Schema 校验、引用校验与质量门禁
+  ↓
+YAML 导出、剧本预览与可编辑重校验
 ```
 
 ## 技术路线

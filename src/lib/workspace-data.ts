@@ -110,7 +110,7 @@ function validateScriptForgeDocument(value: unknown): ScriptForgeDocument | null
 
   if (
     typeof script.title !== "string" ||
-    script.schema_version !== "1.0" ||
+    script.schema_version !== "1.1" ||
     !Array.isArray(script.characters) ||
     !Array.isArray(script.locations) ||
     !Array.isArray(script.scenes)
@@ -142,7 +142,7 @@ function normalizeWorkspaceState(input: unknown, now = new Date().toISOString())
   if (candidate.result !== null && candidate.result !== undefined && !result) return null;
 
   return {
-    schema_version: "1.0",
+    schema_version: "1.1",
     title: typeof candidate.title === "string" && candidate.title.trim() ? candidate.title.trim() : request.chapters[0]?.title ?? "Untitled workspace",
     rawText,
     request,

@@ -100,6 +100,12 @@ assertContains("src/lib/generation/quality.ts", [
   "BEAT_TOO_THIN",
   "SUMMARY_LIKE_BEATS",
   "DURATION_UNDERFILLED",
+  "FACT_REF_UNDERUSED",
+  "SOURCE_UNDERUSED",
+  "SCENE_NO_TURNING_POINT",
+  "SCENE_STATIC_ARC",
+  "DIALOGUE_NO_EXCHANGE",
+  "BEAT_FUNCTION_MISSING_ARC",
   "场景数仅供参考",
   "自然场景边界",
   /minTotalBeats:\s*targetDurationMinutes\s*\*\s*8/,
@@ -120,10 +126,36 @@ console.log("  ✓ quality evaluator contract exists");
 
 assertContains("src/lib/generation/prompts.ts", [
   "buildScriptDensityInstruction",
+  "buildInternalAdaptationWorkflowInstruction",
+  "buildAnalyzerPrompt",
+  "buildPlannerPrompt",
+  "buildScreenwriterPrompt",
+  "buildReporterPrompt",
   "buildScriptCapacityBudget",
   "正文：",
-  "剧本改写质量要求",
+  "剧本改写质量要求（剧本正文写作要求）",
   "容量参考",
+  "先让场面成立",
+  "Source Facts",
+  "原文事实板",
+  "key_facts",
+  "Dramatic Plan",
+  "戏剧路线",
+  "Natural Scene Cards",
+  "自然场面卡",
+  "scene_card",
+  "Dense Beats",
+  "剧本正文",
+  "source_refs",
+  "function",
+  "scene objective",
+  "opposition",
+  "entry state",
+  "turning point",
+  "exit state",
+  "visual atmosphere",
+  "beat budget",
+  "所有中间资产都必须进入 1.1 文档",
   "场景数量由故事素材自行决定",
   "自然场景边界",
   "不要为了凑场景数量拆分连续场景",
@@ -141,6 +173,8 @@ assertContains("src/lib/generation/prompts.ts", [
   "needs_revision",
 ]);
 assertNotContains("src/lib/generation/prompts.ts", [
+  "flattenForSingleRequest",
+  "buildCombinedMessages",
   /slice\(0,\s*900\)/,
   legacyChapterExcerptLabel,
   "硬性容量预算",
@@ -148,12 +182,29 @@ assertNotContains("src/lib/generation/prompts.ts", [
   "规划 3-5 个场景",
   "3-5 场戏",
   "抽取 2~3 个核心场景",
+  "不新增 Schema 字段",
+  "不输出中间资产",
 ]);
-console.log("  ✓ prompt density language exists");
+console.log("  ✓ five-layer prompt workflow is explicit in Schema 1.1");
 
 assertContains("src/lib/generation/revise.ts", [
   "reviseScriptForgeDocument",
   "后续修改建议",
+  "Source Facts",
+  "Dramatic Plan",
+  "Natural Scene Cards",
+  "Dense Beats",
+  "buildInternalAdaptationWorkflowInstruction",
+  'schema_version = "1.1"',
+  "key_facts",
+  "source_refs",
+  "scene_card",
+  "beats[].function",
+  "如果只收到一条建议",
+  "只改写与该建议相关的场景和报告内容",
+  "重新检查自然场景边界",
+  "不要为了应用建议硬拆 scene",
+  "entry_state、turning_point、exit_state",
   "scenes / beats / dialogue / action",
   "revision_suggestions 字段在产品中表示",
   "evaluateScriptDensity",
@@ -197,23 +248,56 @@ assertNotContains("src/lib/generation/types.ts", [
 console.log("  ✓ generation status contract exists");
 
 assertContains("src/lib/generation/generate.ts", [
+  "buildAnalyzerPrompt",
+  "buildPlannerPrompt",
+  "buildScreenwriterPrompt",
+  "buildReporterPrompt",
+  "parseAnalyzerOutput",
+  "parsePlannerOutput",
+  "parseScreenwriterOutput",
+  "parseReporterOutput",
+  "assembleDocument",
+  "stageOutputs",
+  "GENERATION_STAGE_TIMEOUT_MS",
   "evaluateScriptDensity",
   "qualityDiagnostics",
   '"needs_revision"',
   "qualityDiagnostics.some",
 ]);
 assertNotContains("src/lib/generation/generate.ts", [
+  "flattenForSingleRequest",
   legacyBuilder,
   legacyStatus,
   "AI 不可用，返回内置可校验改编文档",
   "返回可校验替代文档",
 ]);
-console.log("  ✓ generation flow rejects poor density without generated substitutes");
+assertContains("src/lib/generation/client.ts", [
+  "ModelRequestOptions",
+  "timeoutMs?: number",
+  "AbortSignal.timeout(timeoutMs)",
+]);
+assertContains("src/lib/generation/types.ts", [
+  "AnalyzerStageOutput",
+  "PlannerStageOutput",
+  "ScreenwriterStageOutput",
+  "ReporterStageOutput",
+  "GenerationStageOutputs",
+]);
+assertContains("docs/technical-design.md", [
+  "多轮串行 API 编排",
+  "AnalyzerStageOutput",
+  "PlannerStageOutput",
+  "ScreenwriterStageOutput",
+  "ReporterStageOutput",
+  "GENERATION_STAGE_TIMEOUT_MS=",
+]);
+console.log("  ✓ generation flow uses explicit multi-round stages without generated substitutes");
 
 assertContains("src/app/api/generate/route.ts", [
   "resultSource",
   '"ai_draft"',
   "result.status === \"needs_revision\"",
+  "stageOutputs",
 ]);
 assertNotContains("src/app/api/generate/route.ts", [
   legacyResultFlag,
@@ -282,27 +366,40 @@ function longContent(prefix, sceneIndex, beatIndex) {
 
 function buildDocument(sceneCount, beatsPerScene, dialoguePerScene, contentPrefix = "足量可演的动作与对白推进", options = {}) {
   const extraBeats = options.extraBeats ?? 0;
+  const factIds = Array.from({ length: 9 }, (_, index) => `fact_${String(index + 1).padStart(3, "0")}`);
   const scenes = Array.from({ length: sceneCount }, (_, sceneIndex) => ({
     id: `scene_${String(sceneIndex + 1).padStart(3, "0")}`,
     title: `第${sceneIndex + 1}场`,
     source_chapters: [`ch_${String((sceneIndex % 3) + 1).padStart(3, "0")}`],
+    source_refs: [factIds[sceneIndex % factIds.length], factIds[(sceneIndex + 1) % factIds.length]],
     location: "loc_001",
     time: "夜内",
     characters: ["char_001", "char_002"],
+    scene_card: {
+      objective: `主角在第${sceneIndex + 1}场逼近关键线索`,
+      opposition: "阻碍者用隐瞒、反问和环境压力拖延",
+      entry_state: `主角带着疑问进入第${sceneIndex + 1}场`,
+      turning_point: `第${sceneIndex + 1}场中关键证据改变双方权力位置`,
+      exit_state: `主角离开第${sceneIndex + 1}场时掌握新的追查方向`,
+      visual_atmosphere: "冷光压在桌面文件上，门外脚步声让对话不断被迫停顿",
+    },
     dramatic_purpose: "推进人物目标与冲突",
     conflict: "主角与阻碍者围绕关键线索展开攻防",
     beats: Array.from({ length: beatsPerScene + (sceneIndex === sceneCount - 1 ? extraBeats : 0) }, (_, beatIndex) => {
       const isDialogue = beatIndex < dialoguePerScene;
+      const functions = ["probe", "evade", "pressure", "reveal", "turn", "reaction", "establish", "pause"];
+      const beatFunction = functions[beatIndex % functions.length];
+      const source_refs = [factIds[(sceneIndex + beatIndex) % factIds.length]];
       return isDialogue
-        ? { type: "dialogue", character: beatIndex % 2 === 0 ? "char_001" : "char_002", content: longContent(contentPrefix, sceneIndex, beatIndex) }
-        : { type: "action", character: "char_001", content: longContent(contentPrefix, sceneIndex, beatIndex) };
+        ? { type: "dialogue", character: beatIndex % 2 === 0 ? "char_001" : "char_002", function: beatFunction, source_refs, content: longContent(contentPrefix, sceneIndex, beatIndex) }
+        : { type: "action", character: "char_001", function: beatFunction, source_refs, content: longContent(contentPrefix, sceneIndex, beatIndex) };
     }),
     adaptation_notes: ["保留原章节冲突并扩写为场面过程"],
   }));
 
   return {
     script: {
-      schema_version: "1.0",
+      schema_version: "1.1",
       title: "质量门禁测试剧本",
       metadata: {
         language: "zh-CN",
@@ -315,9 +412,36 @@ function buildDocument(sceneCount, beatsPerScene, dialoguePerScene, contentPrefi
       source: {
         type: "novel",
         chapters: [
-          { id: "ch_001", title: "第一章", summary: "第一章摘要" },
-          { id: "ch_002", title: "第二章", summary: "第二章摘要" },
-          { id: "ch_003", title: "第三章", summary: "第三章摘要" },
+          {
+            id: "ch_001",
+            title: "第一章",
+            summary: "第一章摘要",
+            key_facts: [
+              { id: "fact_001", type: "event", content: "第一章事件事实" },
+              { id: "fact_002", type: "character_goal", content: "第一章人物目标事实" },
+              { id: "fact_003", type: "conflict", content: "第一章冲突事实" },
+            ],
+          },
+          {
+            id: "ch_002",
+            title: "第二章",
+            summary: "第二章摘要",
+            key_facts: [
+              { id: "fact_004", type: "event", content: "第二章事件事实" },
+              { id: "fact_005", type: "relationship", content: "第二章关系事实" },
+              { id: "fact_006", type: "object", content: "第二章物件事实" },
+            ],
+          },
+          {
+            id: "ch_003",
+            title: "第三章",
+            summary: "第三章摘要",
+            key_facts: [
+              { id: "fact_007", type: "information", content: "第三章信息事实" },
+              { id: "fact_008", type: "emotion", content: "第三章情绪事实" },
+              { id: "fact_009", type: "location", content: "第三章地点事实" },
+            ],
+          },
         ],
       },
       characters: [
@@ -351,6 +475,27 @@ assert.ok(thinDiagnostics.some((item) => item.message.includes("RESULT_ONLY_ACTI
 assert.ok(thinDiagnostics.some((item) => item.message.includes("DRY_DIALOGUE") && item.severity === "error"), "Thin document must fail DRY_DIALOGUE");
 assert.ok(thinDiagnostics.some((item) => item.message.includes("DURATION_UNDERFILLED") && item.severity === "error"), "Thin document must fail DURATION_UNDERFILLED");
 
+const structurallyWeakDocument = buildDocument(3, 32, 12);
+for (const scene of structurallyWeakDocument.script.scenes) {
+  scene.scene_card.turning_point = "无";
+  scene.scene_card.exit_state = scene.scene_card.entry_state;
+  scene.beats = scene.beats.map((beat) => ({ ...beat, function: "establish" }));
+  for (const beat of scene.beats) {
+    if (beat.type === "dialogue") beat.character = "char_001";
+  }
+}
+structurallyWeakDocument.script.scenes[0].source_refs = ["fact_001"];
+for (const scene of structurallyWeakDocument.script.scenes) {
+  for (const beat of scene.beats) beat.source_refs = ["fact_001"];
+}
+const structuralDiagnostics = evaluateScriptDensity(structurallyWeakDocument, buildRequest());
+assert.ok(structuralDiagnostics.some((item) => item.message.includes("SCENE_NO_TURNING_POINT") && item.severity === "error"), "Missing scene turning points must fail");
+assert.ok(structuralDiagnostics.some((item) => item.message.includes("SCENE_STATIC_ARC") && item.severity === "error"), "Static scene arcs must fail");
+assert.ok(structuralDiagnostics.some((item) => item.message.includes("DIALOGUE_NO_EXCHANGE") && item.severity === "error"), "Missing dialogue exchange must fail");
+assert.ok(structuralDiagnostics.some((item) => item.message.includes("BEAT_FUNCTION_MISSING_ARC") && item.severity === "error"), "Missing core beat functions must fail");
+assert.ok(structuralDiagnostics.some((item) => item.message.includes("FACT_REF_UNDERUSED") && item.severity === "error"), "Unused source facts must fail");
+console.log("  ✓ structure quality gate catches missing scene arc, exchange and fact usage");
+
 const nearTargetThinDiagnostics = evaluateScriptDensity(
   buildDocument(6, 11, 5, "摘要", { extraBeats: 4 }),
   buildRequest(9),
@@ -370,7 +515,20 @@ assert.equal(
 );
 console.log("  ✓ near-target quantity gaps warn while thin summary drafts still fail");
 
-const naturalOneSceneDiagnostics = evaluateScriptDensity(buildDocument(1, 96, 48), buildRequest());
+const naturalOneSceneDocument = buildDocument(1, 96, 48);
+naturalOneSceneDocument.script.scenes[0].source_chapters = ["ch_001", "ch_002", "ch_003"];
+naturalOneSceneDocument.script.scenes[0].source_refs = [
+  "fact_001",
+  "fact_002",
+  "fact_003",
+  "fact_004",
+  "fact_005",
+  "fact_006",
+  "fact_007",
+  "fact_008",
+  "fact_009",
+];
+const naturalOneSceneDiagnostics = evaluateScriptDensity(naturalOneSceneDocument, buildRequest());
 assert.ok(!naturalOneSceneDiagnostics.some((item) => item.message.includes("LOW_SCENE_COUNT")), "A dense natural one-scene script must not fail scene count");
 assert.equal(naturalOneSceneDiagnostics.filter((item) => item.severity === "error").length, 0, "A dense natural one-scene script must not produce quality errors");
 console.log("  ✓ scene count is not a hard-coded failure condition");

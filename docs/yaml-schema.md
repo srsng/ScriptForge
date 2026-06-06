@@ -2,17 +2,15 @@
 
 ## 1. 文档目的
 
-本文定义 ScriptForge 输出剧本 YAML 的结构，并说明每一类字段的设计原因。该 Schema 的目标不是限制作者创作，而是让 AI 生成结果从一段不可控文本变成可编辑、可校验、可导出、可继续进入后续生产流程的结构化资产。
+ScriptForge 1.1 把小说改编过程中的中间资产显性化：原文事实、自然场面卡和 beat 戏剧功能都进入最终 YAML。目标不是只生成一段“像剧本”的文本，而是生成可编辑、可校验、可追溯、可继续生产的结构化剧本初稿。
 
-黑客马拉松题目要求输出结构化剧本 YAML，并额外定义 YAML Schema。ScriptForge 采用“JSON Schema 校验 + YAML 展示/导出”的方式实现：模型优先生成结构化 JSON，程序校验后再转换为 YAML。
+模型仍优先输出 JSON，程序通过 JSON Schema 与应用层引用校验后再导出 YAML。
 
 ## 2. 顶层结构
 
-ScriptForge 的 YAML 顶层只有一个 `script` 字段：
-
 ```yaml
 script:
-  schema_version: "1.0"
+  schema_version: "1.1"
   title: "示例剧本"
   metadata: {}
   source: {}
@@ -22,39 +20,11 @@ script:
   adaptation_report: {}
 ```
 
-这样设计有三个原因：
+`schema_version` 当前固定为 `"1.1"`。MVP 不兼容 1.0 文档。
 
-1. 顶层入口明确，便于后续扩展多个文档类型。
-2. 所有剧本内容都归属于 `script`，导入导出时边界清晰。
-3. 可以在 `schema_version` 中标记版本，方便未来升级 Schema。
+## 3. Source Facts
 
-## 3. metadata
-
-`metadata` 描述剧本生成目标和整体风格。
-
-核心字段：
-
-```yaml
-metadata:
-  language: "zh-CN"
-  format: "short_drama"
-  genre: "悬疑"
-  target_duration_minutes: 12
-  logline: "一句话故事梗概"
-  tone: "紧张、克制、现实主义"
-```
-
-设计原因：
-
-- `language` 确保输出语言明确。
-- `format` 区分短剧、电影剧本和舞台剧，不同格式会影响场景密度和对白比例。
-- `genre` 与 `tone` 用于保持风格一致性。
-- `target_duration_minutes` 帮助控制剧本长度和场景数量。
-- `logline` 方便评委或作者快速理解故事。
-
-## 4. source
-
-`source` 保存原始章节信息和改编范围。
+`source.chapters[].key_facts` 是 1.1 的核心新增结构。每章至少 3 条事实，供 scene 和 beat 引用。
 
 ```yaml
 source:
@@ -62,158 +32,96 @@ source:
   chapters:
     - id: "ch_001"
       title: "第一章 雨夜"
-      summary: "主角在雨夜发现父亲留下的线索。"
+      summary: "林舟收到父亲留下的匿名信。"
+      key_facts:
+        - id: "fact_001"
+          type: "event"
+          content: "林舟在雨夜收到一封没有署名的信。"
+        - id: "fact_002"
+          type: "character_goal"
+          content: "林舟想查清父亲失踪前留下的线索。"
+        - id: "fact_003"
+          type: "location"
+          content: "信中指向旧报社地下室。"
 ```
 
-设计原因：
+`fact id` 必须全局唯一，格式为 `fact_001`。`type` 可为 `event`、`character_goal`、`relationship`、`object`、`location`、`information`、`emotion`、`conflict`。
 
-- 题目要求支持 3 个章节以上小说文本，因此章节必须成为一等对象。
-- `summary` 让长文本输入被压缩成可读的章节摘要。
-- 后续场景通过 `source_chapters` 引用章节，实现改编依据追溯。
+## 4. Scenes
 
-## 5. characters
-
-`characters` 定义剧本中的人物表。
-
-```yaml
-characters:
-  - id: "char_001"
-    name: "林舟"
-    role: "protagonist"
-    description: "年轻记者，执着但冲动。"
-    motivation: "查明父亲失踪真相。"
-    arc: "从莽撞追查到学会信任他人。"
-    voice: "短句多，语气直接。"
-```
-
-设计原因：
-
-- 剧本高度依赖人物行动和对白，人物表能降低前后不一致的风险。
-- `motivation` 帮助模型生成更合理的冲突和行动。
-- `voice` 约束对白风格，避免所有角色说话方式相同。
-- `arc` 记录人物变化，便于后续扩展到多集剧本。
-
-## 6. locations
-
-`locations` 定义地点表。
-
-```yaml
-locations:
-  - id: "loc_001"
-    name: "旧报社地下室"
-    description: "昏暗、潮湿，墙上贴满旧报纸。"
-    visual_notes: "适合低照度、手电筒光源和狭窄构图。"
-```
-
-设计原因：
-
-- 剧本是场景驱动的，地点决定了动作、调度和视觉呈现。
-- 独立地点表可以避免同一地点多种名称混用。
-- `visual_notes` 为后续分镜、拍摄计划或舞台设计留下接口。
-
-## 7. scenes
-
-`scenes` 是 Schema 的核心。每个 scene 对应一场戏。
+`scenes` 是剧本主体。1.1 要求每场戏都带 `scene_card` 和 `source_refs`。
 
 ```yaml
 scenes:
   - id: "scene_001"
-    title: "地下室的纸袋"
-    source_chapters: ["ch_001"]
+    title: "铁门之后"
+    source_chapters: ["ch_001", "ch_002"]
+    source_refs: ["fact_001", "fact_004", "fact_007"]
     location: "loc_001"
     time: "night"
     characters: ["char_001", "char_002"]
-    dramatic_purpose: "让主角获得父亲留下的第一条线索。"
-    conflict: "主角想进入档案室，管理员试图阻止。"
-    beats:
-      - type: "action"
-        content: "林舟推开铁门，手电筒扫过满墙旧报纸。"
-      - type: "dialogue"
-        character: "char_002"
-        content: "你不该来这里。"
+    scene_card:
+      objective: "林舟想进入档案室确认父亲留下的线索。"
+      opposition: "许曼用警告、沉默和反问阻止他。"
+      entry_state: "林舟带着怀疑和急迫推门进入。"
+      turning_point: "林舟在卷宗里看见旧照片。"
+      exit_state: "林舟获得新的追查方向，许曼的隐瞒被迫暴露。"
+      visual_atmosphere: "地下室潮湿昏暗，铁门回声和旧纸气味压住对话。"
+    dramatic_purpose: "让主角进入核心调查地点。"
+    conflict: "主角追查真相，管理员试图阻止。"
+    beats: []
 ```
 
-设计原因：
+`source_chapters` 说明场景来自哪些章节；`source_refs` 说明场景具体使用了哪些原文事实。`scene_card` 用来判断这场戏是否有目标、阻碍、转折和状态变化。
 
-- `source_chapters` 保证每场戏都有来源依据。
-- `location` 与 `time` 是剧本场景的基本条件。
-- `dramatic_purpose` 让每场戏有明确叙事功能，避免流水账。
-- `conflict` 强制 AI 提炼戏剧张力。
-- `beats` 把剧本拆成动作、对白、转场、旁白和备注，方便编辑和导出。
+## 5. Beats
 
-## 8. beats
-
-`beats` 是场景中的最小剧本单元。
-
-支持类型：
-
-- `action`：动作或场面说明。
-- `dialogue`：角色对白。
-- `narration`：旁白。
-- `transition`：转场。
-- `note`：改编备注。
-
-对白 beat 必须包含 `character` 字段，其他类型不强制要求。
-
-设计原因：
-
-- 小说中的心理描写需要转换为动作和对白，`beats` 可以明确转换结果。
-- 类型化 beat 方便前端渲染不同样式。
-- 后续导出 Markdown、分镜或拍摄表时，可以按类型转换。
-
-## 9. adaptation_report
-
-`adaptation_report` 保存 AI 对本次改编的总结。
+每个 beat 必须声明 `function` 和 `source_refs`。
 
 ```yaml
-adaptation_report:
-  chapter_count: 3
-  scene_count: 8
-  character_count: 5
-  main_conflicts:
-    - "主角追查真相与外部阻碍之间的冲突。"
-  omitted_or_compressed:
-    - "压缩了第二章中较长的内心独白。"
-  revision_suggestions:
-    - "建议人工强化第三场中反派的动机。"
+beats:
+  - type: "action"
+    character: "char_001"
+    function: "establish"
+    source_refs: ["fact_001"]
+    content: "林舟推开地下室铁门，手电光先扫过墙上的旧报纸。"
+  - type: "dialogue"
+    character: "char_002"
+    function: "evade"
+    source_refs: ["fact_006"]
+    content: "许曼没有让开，只把钥匙攥进掌心：你不该来这里。"
 ```
 
-设计原因：
+`function` 可为 `establish`、`probe`、`evade`、`pressure`、`reveal`、`turn`、`reaction`、`pause`、`transition`、`note`。它用于校验场内是否存在试探、回避、施压、揭示、转折和反应，而不只是堆字数。
 
-- 让作者快速知道 AI 做了哪些取舍。
-- 帮助评委理解系统不是黑盒生成，而是有改编判断。
-- 为后续人工打磨提供入口。
+## 6. 校验规则
 
-## 10. 校验规则
+JSON Schema 负责：
 
-ScriptForge 使用两层校验。
+- 1.1 必填字段。
+- 字段类型、枚举值和数组最小长度。
+- `key_facts`、`scene_card`、`beat.function/source_refs` 的结构。
 
-### JSON Schema 校验
-
-负责：
-
-- 必填字段。
-- 字段类型。
-- 枚举值。
-- 数组最小长度。
-- beat 类型与基础结构。
-
-### 应用层校验
-
-负责跨引用关系：
+应用层引用校验负责：
 
 - `scene.location` 必须存在于 `locations`。
-- `scene.characters` 中的角色必须存在于 `characters`。
-- `dialogue.character` 必须存在于当前 scene 的 characters。
+- `scene.characters` 和 `dialogue.character` 必须存在于 `characters`。
 - `scene.source_chapters` 必须存在于 `source.chapters`。
+- `scene.source_refs` 和 `beats[].source_refs` 必须存在于 `source.chapters[].key_facts`。
+- `fact id` 必须全局唯一。
 
-跨引用校验不完全放进 JSON Schema，是因为标准 JSON Schema 对动态集合引用不够直观，应用层实现更清晰，也更容易给用户展示错误信息。
+质量门禁额外判断：
 
-## 11. YAML 示例
+- 容量、对白、字数是否支撑目标时长。
+- 是否存在摘要式 beat、结果式 action、干对白。
+- 是否缺少 `turning_point`、`entry_state → exit_state` 变化、对白攻防轮次。
+- 原文 facts 是否没有被 scene 或 beat 使用。
+
+## 7. 完整示例
 
 ```yaml
 script:
-  schema_version: "1.0"
+  schema_version: "1.1"
   title: "雨夜档案"
   metadata:
     language: "zh-CN"
@@ -228,12 +136,42 @@ script:
       - id: "ch_001"
         title: "第一章 雨夜"
         summary: "林舟收到父亲留下的匿名信，前往旧报社。"
+        key_facts:
+          - id: "fact_001"
+            type: "event"
+            content: "林舟在雨夜收到一封没有署名的信。"
+          - id: "fact_002"
+            type: "character_goal"
+            content: "林舟想查清父亲失踪前留下的线索。"
+          - id: "fact_003"
+            type: "location"
+            content: "信中指向旧报社地下室。"
       - id: "ch_002"
         title: "第二章 档案室"
         summary: "林舟在地下档案室发现失踪案卷宗。"
+        key_facts:
+          - id: "fact_004"
+            type: "event"
+            content: "林舟进入地下档案室并发现卷宗。"
+          - id: "fact_005"
+            type: "object"
+            content: "卷宗夹着父亲当年的采访卡。"
+          - id: "fact_006"
+            type: "conflict"
+            content: "许曼试图阻止林舟继续翻查档案。"
       - id: "ch_003"
         title: "第三章 旧照片"
-        summary: "一张旧照片揭示管理员与父亲曾经相识。"
+        summary: "旧照片揭示管理员与父亲曾经相识。"
+        key_facts:
+          - id: "fact_007"
+            type: "information"
+            content: "旧照片显示许曼与林舟父亲曾经同框。"
+          - id: "fact_008"
+            type: "relationship"
+            content: "许曼隐瞒了自己认识林舟父亲的事实。"
+          - id: "fact_009"
+            type: "emotion"
+            content: "林舟意识到许曼的沉默是戒备。"
   characters:
     - id: "char_001"
       name: "林舟"
@@ -242,6 +180,17 @@ script:
       motivation: "查明父亲失踪真相。"
       arc: "从单打独斗到开始信任他人。"
       voice: "短句多，追问直接。"
+    - id: "char_002"
+      name: "许曼"
+      role: "supporting"
+      description: "旧报社管理员，沉默寡言。"
+      motivation: "守护报社秘密。"
+      arc: "从拒绝到被迫合作。"
+      voice: "言简意赅，带有戒备。"
+      relationships:
+        - target: "char_001"
+          type: "colleague"
+          description: "工作关系，互不信任。"
   locations:
     - id: "loc_001"
       name: "旧报社地下室"
@@ -250,36 +199,56 @@ script:
   scenes:
     - id: "scene_001"
       title: "铁门之后"
-      source_chapters: ["ch_001"]
+      source_chapters: ["ch_001", "ch_002", "ch_003"]
+      source_refs: ["fact_001", "fact_004", "fact_006", "fact_007", "fact_008"]
       location: "loc_001"
       time: "night"
-      characters: ["char_001"]
+      characters: ["char_001", "char_002"]
+      scene_card:
+        objective: "林舟想进入档案室确认父亲留下的线索。"
+        opposition: "许曼用警告、沉默和反问阻止他继续深入。"
+        entry_state: "林舟带着怀疑和急迫推门进入，许曼保持戒备。"
+        turning_point: "林舟在卷宗里看见旧照片，确认许曼认识父亲。"
+        exit_state: "林舟获得新的追查方向，许曼的隐瞒被迫暴露。"
+        visual_atmosphere: "地下室潮湿昏暗，铁门回声、手电光和旧纸气味压住两人的呼吸。"
       dramatic_purpose: "让主角进入核心调查地点。"
-      conflict: "主角害怕未知，但必须继续追查。"
+      conflict: "主角必须继续追查；管理员试图阻止他深入。"
       beats:
         - type: "action"
-          content: "林舟推开地下室铁门，潮气扑面而来。"
-        - type: "narration"
-          content: "他终于来到父亲信中提到的地方。"
+          character: "char_001"
+          function: "establish"
+          source_refs: ["fact_001", "fact_003"]
+          content: "林舟推开地下室铁门，潮气扑面而来，手电光先扫过墙上的旧报纸。"
+        - type: "dialogue"
+          character: "char_002"
+          function: "evade"
+          source_refs: ["fact_006"]
+          content: "许曼没有让开，只把钥匙攥进掌心：你不该来这里。"
+        - type: "dialogue"
+          character: "char_001"
+          function: "pressure"
+          source_refs: ["fact_002", "fact_004"]
+          content: "林舟盯住她攥紧的手：那你为什么知道这封信？"
+        - type: "action"
+          character: "char_001"
+          function: "reveal"
+          source_refs: ["fact_005", "fact_007"]
+          content: "旧照片从卷宗里滑落，照片背面父亲的名字被水迹泡开。"
+        - type: "dialogue"
+          character: "char_002"
+          function: "turn"
+          source_refs: ["fact_008", "fact_009"]
+          content: "许曼移开视线，声音压低：有些事他没告诉你，是因为知道你一定会追到这里。"
+      adaptation_notes:
+        - "合并三章线索，把匿名信、档案室和旧照片压成一场有转折的调查对手戏。"
   adaptation_report:
     chapter_count: 3
     scene_count: 1
-    character_count: 1
+    character_count: 2
     main_conflicts:
-      - "主角追查真相与未知危险之间的冲突。"
+      - "主角追查真相与管理员隐瞒之间的冲突。"
     omitted_or_compressed:
-      - "压缩了原文中较长的环境描写。"
+      - "压缩重复背景说明。"
     revision_suggestions:
-      - "建议增加与管理员的对手戏。"
+      - "继续强化第二轮对白攻防。"
 ```
-
-## 12. 后续扩展
-
-后续版本可以扩展：
-
-- 多集短剧结构。
-- 分镜字段。
-- 拍摄成本估算。
-- 场景时长估计。
-- 人物关系图。
-- 与专业剧本格式互转。

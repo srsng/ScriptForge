@@ -62,7 +62,7 @@ async function fetchJson(base, route, options) {
 function buildValidationDocument() {
   return {
     script: {
-      schema_version: "1.0",
+      schema_version: "1.1",
       title: "M1 API validation result",
       metadata: {
         language: "zh-CN",
@@ -75,12 +75,41 @@ function buildValidationDocument() {
       source: {
         type: "novel",
         chapters: [
-          { id: "chapter-1", title: "Validation chapter", summary: "Validation-only source trace." },
+          {
+            id: "ch_001",
+            title: "Validation chapter 1",
+            summary: "Validation-only source trace for setup.",
+            key_facts: [
+              { id: "fact_001", type: "event", content: "Validator prepares an external result payload." },
+              { id: "fact_002", type: "character_goal", content: "Validator wants result storage to round-trip." },
+              { id: "fact_003", type: "location", content: "The check happens inside a neutral validation room." },
+            ],
+          },
+          {
+            id: "ch_002",
+            title: "Validation chapter 2",
+            summary: "Validation-only source trace for persistence.",
+            key_facts: [
+              { id: "fact_004", type: "event", content: "The workspace API receives and saves the state." },
+              { id: "fact_005", type: "information", content: "The result must come from the posted payload." },
+              { id: "fact_006", type: "conflict", content: "Hardcoded generation output would make the check invalid." },
+            ],
+          },
+          {
+            id: "ch_003",
+            title: "Validation chapter 3",
+            summary: "Validation-only source trace for reload.",
+            key_facts: [
+              { id: "fact_007", type: "event", content: "The workspace is reloaded after save." },
+              { id: "fact_008", type: "emotion", content: "The validation actor stays calm and concise." },
+              { id: "fact_009", type: "relationship", content: "The API and workspace storage keep a clear handoff." },
+            ],
+          },
         ],
       },
       characters: [
         {
-          id: "validator",
+          id: "char_001",
           name: "Validator",
           role: "supporting",
           description: "Validation-only character.",
@@ -91,7 +120,7 @@ function buildValidationDocument() {
       ],
       locations: [
         {
-          id: "validation-room",
+          id: "loc_001",
           name: "Validation Room",
           description: "A neutral test location.",
           visual_notes: "Plain workspace verification scene.",
@@ -99,16 +128,37 @@ function buildValidationDocument() {
       ],
       scenes: [
         {
-          id: "scene-1",
+          id: "scene_001",
           title: "Save and reload",
-          source_chapters: ["chapter-1"],
-          location: "validation-room",
+          source_chapters: ["ch_001", "ch_002", "ch_003"],
+          source_refs: ["fact_001", "fact_004", "fact_007"],
+          location: "loc_001",
           time: "present",
-          characters: ["validator"],
+          characters: ["char_001"],
+          scene_card: {
+            objective: "Validator confirms an external result can be saved and reloaded.",
+            opposition: "The workflow must reject hardcoded or malformed state updates.",
+            entry_state: "Validator starts with a normalized three-chapter workspace.",
+            turning_point: "The saved state returns the same externally posted result.",
+            exit_state: "The workspace reload proves persistence uses data/workspaces state.",
+            visual_atmosphere: "A plain validation room with no decorative story fixtures.",
+          },
           dramatic_purpose: "Verify that results are external payloads persisted under data/workspaces.",
           conflict: "The product must not hardcode generated results.",
           beats: [
-            { type: "action", content: "Validator posts an external result JSON to the workspace API." },
+            {
+              type: "action",
+              function: "establish",
+              source_refs: ["fact_001", "fact_004"],
+              content: "Validator posts an external result JSON to the workspace API and watches the response preserve its title.",
+            },
+            {
+              type: "dialogue",
+              character: "char_001",
+              function: "reveal",
+              source_refs: ["fact_005", "fact_007"],
+              content: "The reloaded state is the proof: this came from the request body, not from source fixtures.",
+            },
           ],
           adaptation_notes: ["Validation artifact is not committed as a fixture."],
         },
@@ -188,7 +238,7 @@ async function runApiChecks(base) {
     assert(typeof sample.data?.chapterText === "string" && sample.data.chapterText.includes("第一回"), "sample endpoint must return source chapter text");
 
     const initialState = {
-      schema_version: "1.0",
+      schema_version: "1.1",
       title: "M1 API validation workspace",
       rawText: sample.data.chapterText,
       request: {
@@ -220,7 +270,7 @@ async function runApiChecks(base) {
     const invalidState = await fetchJson(base, `/api/workspaces/${createdWorkspaceId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ result: { script: { schema_version: "1.0", title: "invalid", characters: [], locations: [], scenes: [] } } }),
+      body: JSON.stringify({ result: { script: { schema_version: "1.1", title: "invalid", characters: [], locations: [], scenes: [] } } }),
     });
     assert(invalidState.response.status === 400, `non-state update must be rejected, got ${invalidState.response.status}`);
 

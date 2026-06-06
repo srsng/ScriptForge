@@ -127,6 +127,23 @@ export function validateScriptForgeReferences(
   const characterIds = new Set(script.characters.map((c) => c.id));
   const locationIds = new Set(script.locations.map((l) => l.id));
   const chapterIds = new Set(script.source.chapters.map((ch) => ch.id));
+  const factIds = new Set<string>();
+  const duplicateFactIds = new Set<string>();
+
+  for (const [chi, chapter] of script.source.chapters.entries()) {
+    for (const [fi, fact] of chapter.key_facts.entries()) {
+      if (factIds.has(fact.id)) {
+        duplicateFactIds.add(fact.id);
+        errors.push(
+          referenceError(
+            `$.script.source.chapters[${chi}].key_facts[${fi}].id`,
+            `来源事实 "${fact.id}" 重复，fact id 必须在整份文档中唯一。`,
+          ),
+        );
+      }
+      factIds.add(fact.id);
+    }
+  }
 
   // scene.location must exist in locations
   for (const [si, scene] of script.scenes.entries()) {
@@ -168,6 +185,20 @@ export function validateScriptForgeReferences(
     }
   }
 
+  // scene.source_refs must exist in source.chapters[].key_facts
+  for (const [si, scene] of script.scenes.entries()) {
+    for (const [ri, factId] of scene.source_refs.entries()) {
+      if (!factIds.has(factId) || duplicateFactIds.has(factId)) {
+        errors.push(
+          referenceError(
+            `$.script.scenes[${si}].source_refs[${ri}]`,
+            `场景来源事实 "${factId}" 不在 source.chapters[].key_facts 中，或该 fact id 不唯一。`,
+          ),
+        );
+      }
+    }
+  }
+
   // dialogue beat.character must exist in characters
   for (const [si, scene] of script.scenes.entries()) {
     for (const [bi, beat] of scene.beats.entries()) {
@@ -177,6 +208,17 @@ export function validateScriptForgeReferences(
             referenceError(
               `$.script.scenes[${si}].beats[${bi}].character`,
               `对白角色 "${beat.character}" 不在 characters 中。`,
+            ),
+          );
+        }
+      }
+
+      for (const [ri, factId] of beat.source_refs.entries()) {
+        if (!factIds.has(factId) || duplicateFactIds.has(factId)) {
+          errors.push(
+            referenceError(
+              `$.script.scenes[${si}].beats[${bi}].source_refs[${ri}]`,
+              `beat 来源事实 "${factId}" 不在 source.chapters[].key_facts 中，或该 fact id 不唯一。`,
             ),
           );
         }

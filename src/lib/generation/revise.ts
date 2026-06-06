@@ -2,7 +2,7 @@ import { validateScriptForgeDocument } from "@/lib/schema";
 import type { ScriptForgeDocument } from "@/types/scriptforge";
 import { requestJsonFromModel } from "./client";
 import { coerceDocument, parseModelJson } from "./document";
-import { buildScriptDensityInstruction } from "./prompts";
+import { buildInternalAdaptationWorkflowInstruction, buildScriptDensityInstruction } from "./prompts";
 import { evaluateScriptDensity } from "./quality";
 import type { GenerationDiagnostic, GenerationResult, PromptBundle, PromptMessage, RevisionRequest } from "./types";
 
@@ -24,6 +24,7 @@ function normalizeDirections(input: RevisionRequest): string[] {
 }
 
 function buildRevisionMessages(input: RevisionRequest, directions: string[]): PromptMessage[] {
+  const workflowInstruction = buildInternalAdaptationWorkflowInstruction(input.request);
   const densityInstruction = buildScriptDensityInstruction(input.request);
   const sourceChapters = input.request.chapters
     .map((chapter, index) => {
@@ -35,7 +36,7 @@ function buildRevisionMessages(input: RevisionRequest, directions: string[]): Pr
   return [
     {
       role: "system",
-      content: "你是 ScriptForge 后续修改建议改写器。只输出一个完整 ScriptForgeDocument JSON；不要 Markdown、不要解释性文字。",
+      content: "你是 ScriptForge 1.1 后续修改建议改写器。必须复核 Source Facts / Dramatic Plan / Natural Scene Cards / Dense Beats，只输出一个完整 ScriptForgeDocument JSON；不要 Markdown、不要解释性文字。",
     },
     {
       role: "user",
@@ -44,11 +45,17 @@ function buildRevisionMessages(input: RevisionRequest, directions: string[]): Pr
 后续修改建议：
 - ${directions.join("\n- ")}
 
+改写前先在内部执行：
+${workflowInstruction}
+
 必须落实到 scenes / beats / dialogue / action：
-- 调整剧情重心：加重核心冲突、人物关系、场景篇幅、对白攻防或信息释放节奏。
+- 按所选建议调整剧情重心：加重核心冲突、人物关系、场景篇幅、对白攻防或信息释放节奏；如果只收到一条建议，只改写与该建议相关的场景和报告内容。
+- 重新检查自然场景边界：连续地点、时间、人物组合和目标一致的攻防应合并或留在同一 scene 内扩写，不要为了应用建议硬拆 scene。
+- 必须保留 schema_version = "1.1"，维护 source.chapters[].key_facts、scenes[].source_refs、scenes[].scene_card、beats[].function、beats[].source_refs。
+- 改写 scenes[].beats 时同步修正 scene_card 的 entry_state、turning_point、exit_state 和 visual_atmosphere。
 - 直接改写 scenes[].beats，不允许只修改 adaptation_report 或 revision_suggestions。
 - dialogue 要体现关系、情绪、潜台词和攻防变化；action 要有可拍摄动作、对象、反应和环境变化。
-- 保留现有 Schema 主结构、id 风格和引用关系；不要新增 Schema 外字段。
+- 保留现有 1.1 Schema 主结构、id 风格和引用关系；不要输出 Schema 外字段。
 - revision_suggestions 字段在产品中表示“后续修改建议”，改写后只保留仍需后续处理的后续修改建议。
 - 所有新增内容必须能从原始章节合理改编，不能编造与原文无关的新设定。
 

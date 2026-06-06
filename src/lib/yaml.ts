@@ -38,6 +38,11 @@ function buildOrderedSource(s: ScriptForgeScript["source"]): Record<string, unkn
       id: ch.id,
       title: ch.title,
       summary: ch.summary,
+      key_facts: ch.key_facts.map((fact) => ({
+        id: fact.id,
+        type: fact.type,
+        content: fact.content,
+      })),
     })),
   };
 }
@@ -76,16 +81,25 @@ function buildOrderedScene(s: ScriptForgeScript["scenes"][number]): Record<strin
     id: s.id,
     title: s.title,
     source_chapters: s.source_chapters,
+    source_refs: s.source_refs,
     location: s.location,
     time: s.time,
     characters: s.characters,
+    scene_card: {
+      objective: s.scene_card.objective,
+      opposition: s.scene_card.opposition,
+      entry_state: s.scene_card.entry_state,
+      turning_point: s.scene_card.turning_point,
+      exit_state: s.scene_card.exit_state,
+      visual_atmosphere: s.scene_card.visual_atmosphere,
+    },
     dramatic_purpose: s.dramatic_purpose,
     conflict: s.conflict,
     beats: s.beats.map((b) => {
       if (b.type === "dialogue") {
-        return { type: b.type, character: b.character, content: b.content };
+        return { type: b.type, character: b.character, function: b.function, source_refs: b.source_refs, content: b.content };
       }
-      const beat: Record<string, unknown> = { type: b.type, content: b.content };
+      const beat: Record<string, unknown> = { type: b.type, function: b.function, source_refs: b.source_refs, content: b.content };
       if (b.character) beat.character = b.character;
       return beat;
     }),
@@ -157,6 +171,9 @@ export function documentToMarkdown(doc: ScriptForgeDocument): string {
   lines.push("");
   for (const ch of s.source.chapters) {
     lines.push(`- **${ch.title}**（${ch.id}）：${ch.summary}`);
+    for (const fact of ch.key_facts) {
+      lines.push(`  - ${fact.id} / ${fact.type}：${fact.content}`);
+    }
   }
   lines.push("");
 
@@ -201,9 +218,16 @@ export function documentToMarkdown(doc: ScriptForgeDocument): string {
     lines.push(`- **地点**：${loc?.name ?? scene.location}`);
     lines.push(`- **时间**：${scene.time}`);
     lines.push(`- **出场人物**：${scene.characters.map((cid) => s.characters.find((c) => c.id === cid)?.name ?? cid).join("、")}`);
+    lines.push(`- **场景目标**：${scene.scene_card.objective}`);
+    lines.push(`- **阻碍**：${scene.scene_card.opposition}`);
+    lines.push(`- **入场状态**：${scene.scene_card.entry_state}`);
+    lines.push(`- **转折**：${scene.scene_card.turning_point}`);
+    lines.push(`- **离场状态**：${scene.scene_card.exit_state}`);
+    lines.push(`- **场景氛围**：${scene.scene_card.visual_atmosphere}`);
     lines.push(`- **戏剧目的**：${scene.dramatic_purpose}`);
     lines.push(`- **冲突**：${scene.conflict}`);
     lines.push(`- **来源章节**：${scene.source_chapters.join("、")}`);
+    lines.push(`- **来源事实**：${scene.source_refs.join("、")}`);
     if (scene.adaptation_notes && scene.adaptation_notes.length > 0) {
       lines.push(`- **改编说明**：${scene.adaptation_notes.join("；")}`);
     }
@@ -213,12 +237,12 @@ export function documentToMarkdown(doc: ScriptForgeDocument): string {
     for (const beat of scene.beats) {
       if (beat.type === "dialogue") {
         const charName = s.characters.find((c) => c.id === beat.character)?.name ?? beat.character;
-        lines.push(`> **${charName}**：${beat.content}`);
+        lines.push(`> **${charName}**（${beat.function} / ${beat.source_refs.join("、")}）：${beat.content}`);
       } else {
         const prefix = beat.character
           ? `[${s.characters.find((c) => c.id === beat.character)?.name ?? beat.character}] `
           : "";
-        lines.push(`> *${prefix}${beat.content}*`);
+        lines.push(`> *${prefix}${beat.function} / ${beat.source_refs.join("、")}：${beat.content}*`);
       }
       lines.push("");
     }
@@ -263,7 +287,7 @@ export function yamlToDocument(yamlText: string): ScriptForgeDocument | null {
       return doc as unknown as ScriptForgeDocument;
     }
     // Maybe it's just the script object without wrapper
-    if (doc.schema_version === "1.0") {
+    if (doc.schema_version === "1.1") {
       return { script: doc as unknown as ScriptForgeDocument["script"] };
     }
     return null;

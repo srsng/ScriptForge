@@ -22,7 +22,7 @@ export function coerceScriptForgeDocument(value: unknown): ScriptForgeDocument |
     return candidate as unknown as ScriptForgeDocument;
   }
 
-  if (candidate.schema_version === "1.0") {
+  if (candidate.schema_version === "1.1") {
     return { script: candidate as unknown as ScriptForgeScript };
   }
 

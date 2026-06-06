@@ -1,4 +1,13 @@
-import type { GenerationRequest, ScriptForgeDocument } from "@/types/scriptforge";
+import type {
+  AdaptationReport,
+  GenerationRequest,
+  ScriptCharacter,
+  ScriptLocation,
+  ScriptScene,
+  ScriptSceneCard,
+  ScriptSource,
+  ScriptForgeDocument,
+} from "@/types/scriptforge";
 import type { ValidationError, ValidationResult } from "@/lib/schema";
 
 export type GenerationStage = "analyzer" | "planner" | "screenwriter" | "reporter" | "validation" | "quality";
@@ -34,6 +43,48 @@ export type PromptBundle = {
   responseContract: string;
 };
 
+export type AnalyzerStageOutput = {
+  source: ScriptSource;
+};
+
+export type PlannedScene = {
+  id: string;
+  title: string;
+  source_chapters: string[];
+  source_refs: string[];
+  location: string;
+  time: string;
+  characters: string[];
+  scene_card: ScriptSceneCard;
+  dramatic_purpose: string;
+  conflict: string;
+  beat_budget?: number;
+  adaptation_notes?: string[];
+};
+
+export type PlannerStageOutput = {
+  characters: ScriptCharacter[];
+  locations: ScriptLocation[];
+  scene_plan: PlannedScene[];
+};
+
+export type ScreenwriterStageOutput = {
+  scenes: ScriptScene[];
+};
+
+export type ReporterStageOutput = {
+  title: string;
+  logline: string;
+  adaptation_report: AdaptationReport;
+};
+
+export type GenerationStageOutputs = {
+  analyzer?: AnalyzerStageOutput;
+  planner?: PlannerStageOutput;
+  screenwriter?: ScreenwriterStageOutput;
+  reporter?: ReporterStageOutput;
+};
+
 export type OpenAiCompatibleConfig = {
   baseUrl: string;
   apiKey: string;
@@ -55,6 +106,7 @@ export type GenerateAdaptationResult = {
   validation?: ValidationResult;
   diagnostics: GenerationDiagnostic[];
   promptStages: PromptBundle[];
+  stageOutputs?: GenerationStageOutputs;
   model?: string;
   error?: string;
 };

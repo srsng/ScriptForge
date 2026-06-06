@@ -30,7 +30,7 @@ assert.equal(
 
 for (const token of [
   "export type WorkspaceState",
-  'schema_version: "1.0"',
+  'schema_version: "1.1"',
   "yamlText",
   "yamlValidation",
   "repairResult",

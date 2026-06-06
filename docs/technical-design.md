@@ -2,94 +2,36 @@
 
 ## 1. 技术目标
 
-ScriptForge 的技术目标是在 48 小时内实现一个稳定可演示的 AI 小说转剧本工作台。第一版优先保证端到端闭环和结构化输出质量，不追求复杂后端架构。
+ScriptForge 是一个 AI 小说转剧本工作台。当前 MVP 的核心目标是把 3 章以上小说片段改编成 `ScriptForgeDocument 1.1`，并让结果具备可校验的原文事实、场面卡、beat 戏剧功能和来源追溯。
 
 核心链路：
 
 ```text
-章节输入 → AI 分阶段分析 → 结构化 JSON → JSON Schema 校验 → YAML 转换 → 预览与导出
+章节输入
+  → Analyzer 生成 Source Facts
+  → Planner 生成人物 / 地点 / Natural Scene Cards
+  → Screenwriter 生成 Dense Beats
+  → Reporter 生成标题 / logline / adaptation_report
+  → 程序组装 ScriptForgeDocument 1.1 JSON
+  → JSON Schema 校验
+  → 应用层引用校验
+  → 剧本质量门禁
+  → YAML / JSON / Markdown 导出
 ```
 
-## 2. 推荐技术栈
+当前生成链路采用多轮串行 API 编排。原因是单次请求需要同时读取章节、完成全部中间推理并输出完整剧本，容易触发上游 502 或超时；多轮将 Source Facts、Dramatic Plan、Scene Cards 和 Dense Beats 显性化，程序可以在每轮后做轻量校验，再组装最终 1.1 文档。
 
-### 应用框架
+## 2. 技术栈
 
-使用 Next.js App Router + TypeScript 构建全栈单体应用。
+- Next.js App Router + TypeScript。
+- Ajv + JSON Schema 2020-12 做结构校验。
+- `js-yaml` 做 YAML 解析和导出。
+- OpenAI-compatible chat completions adapter，读取显式配置的 API key。
+- React 工作台负责输入、生成状态、质量状态、预览、YAML 编辑和导出。
 
-原因：
+## 3. 数据契约
 
-- 前端、API Route、部署可以放在一个项目中。
-- 减少跨域、服务联调和多仓库管理成本。
-- 适合 48 小时快速交付。
-
-### UI 与交互
-
-- Tailwind CSS：快速构建稳定布局。
-- shadcn/ui：提供基础控件。
-- lucide-react：按钮图标。
-- Monaco Editor 或 CodeMirror：YAML 编辑器。
-
-### 数据处理
-
-- yaml 或 js-yaml：JSON 与 YAML 转换。
-- Ajv：执行 JSON Schema 校验。
-- Zod 可选：校验前端表单和 API 输入。
-
-### AI 接入
-
-采用 OpenAI-compatible adapter，避免绑定单一模型供应商。
-
-建议环境变量：
-
-```text
-OPENAI_API_KEY=
-OPENAI_BASE_URL=
-OPENAI_MODEL=
-OPENAI_REASONING_EFFORT=
-
-BACKUP_OPENAI_API_KEY=
-BACKUP_OPENAI_BASE_URL=
-BACKUP_OPENAI_MODEL=
-BACKUP_OPENAI_REASONING_EFFORT=
-```
-
-后续可以切换 OpenAI、DeepSeek、Qwen、Moonshot、Gemini 兼容网关等模型。
-
-## 3. 第一版目录建议
-
-```text
-ScriptForge/
-  app/
-    page.tsx
-    api/
-      generate/route.ts
-      validate/route.ts
-      repair/route.ts
-  components/
-    workspace/
-    editor/
-    preview/
-  lib/
-    ai/
-      client.ts
-      prompts.ts
-      pipeline.ts
-    schema/
-      validate.ts
-    yaml/
-      convert.ts
-    samples/
-      demo-novel.ts
-  schema/
-    scriptforge.schema.json
-  docs/
-```
-
-## 4. 数据流设计
-
-### 输入数据
-
-前端输入章节数组：
+### 输入
 
 ```ts
 type NovelChapter = {
@@ -97,170 +39,231 @@ type NovelChapter = {
   title: string;
   content: string;
 };
+
+type GenerationRequest = {
+  chapters: NovelChapter[];
+  target: {
+    format: "short_drama" | "film" | "stage";
+    genre: string;
+    target_duration_minutes: number;
+    tone: string;
+  };
+};
 ```
 
-至少需要 3 个章节。前端和后端都应校验章节数量。
+至少需要 3 个有效章节。
 
-### 中间数据
-
-AI 管线建议拆成三个阶段。
-
-#### 阶段一：章节分析
-
-输出每章摘要、人物、地点、事件、冲突、伏笔和可改编素材。
-
-#### 阶段二：故事圣经
-
-合并多个章节的信息，形成全局人物表、地点表、时间线、主线冲突和改编风格。
-
-#### 阶段三：剧本生成
-
-基于故事圣经生成结构化剧本 JSON。此阶段必须严格贴合 Schema。
-
-### 输出数据
+### 输出
 
 后端返回：
 
 ```ts
-type GenerateResult = {
-  script: ScriptForgeDocument;
-  yaml: string;
-  validation: ValidationResult;
-  report: AdaptationReport;
+type GenerationResult = {
+  status: "ai_success" | "degraded" | "needs_revision" | "error";
+  document?: ScriptForgeDocument;
+  validation?: ValidationResult;
+  diagnostics: GenerationDiagnostic[];
+  promptStages: PromptBundle[];
+  stageOutputs?: GenerationStageOutputs;
+  model?: string;
+  error?: string;
 };
 ```
 
-## 5. 为什么先生成 JSON 再转 YAML
+`ScriptForgeDocument` 当前只接受 `schema_version: "1.1"`。
 
-不要让模型直接输出 YAML。YAML 对人类友好，但对模型生成和程序校验来说更容易出现缩进、列表和引号问题。
+### AI 配置
 
-更稳的方式是：
+本地生成链路通过环境变量配置：
 
-1. 让模型输出严格 JSON。
-2. 使用 JSON Schema 校验。
-3. 修复不符合 Schema 的字段。
-4. 程序将 JSON 转成 YAML。
+```env
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_REASONING_EFFORT=
+BACKUP_OPENAI_API_KEY=
+BACKUP_OPENAI_BASE_URL=
+BACKUP_OPENAI_MODEL=
+BACKUP_OPENAI_REASONING_EFFORT=
+GENERATION_STAGE_TIMEOUT_MS=180000
+GENERATION_ANALYZER_TIMEOUT_MS=
+GENERATION_PLANNER_TIMEOUT_MS=
+GENERATION_SCREENWRITER_TIMEOUT_MS=
+GENERATION_REPORTER_TIMEOUT_MS=
+```
 
-这样可以显著降低 Demo 翻车概率。
+`OPENAI_API_KEY=` 是主配置；如果没有配置任何可用 key，生成 API 返回配置错误，不创建替代剧本结果。阶段超时默认 180 秒，可以用 `GENERATION_STAGE_TIMEOUT_MS` 全局覆盖，也可以用单阶段变量覆盖。MVP 保持当前多轮串行 API 编排，不增加自适应分章、并行分析、重试或 fallback 生成路径；前端在生成中显示已等待秒数。
 
-## 6. AI 管线设计
+## 4. 多轮生成工作流
 
-### Prompt 角色
+### Analyzer
 
-建议使用三个系统角色，而不是一个超长 Prompt。
+输入完整章节正文，输出：
 
-#### Analyzer
+```ts
+type AnalyzerStageOutput = {
+  source: ScriptSource;
+};
+```
 
-负责从章节中抽取事实，不写剧本。
+阶段校验：
 
-输出：人物、地点、事件、冲突、叙事功能、可改编点。
+- `source.type` 必须是 `novel`。
+- `source.chapters` 必须覆盖全部输入章节。
+- 每章至少 3 条 `key_facts`。
+- `fact id` 必须全局唯一。
 
-#### Planner
+### Planner
 
-负责把章节事实整合为故事圣经和场景规划。
+输入 Analyzer 输出，输出：
 
-输出：人物表、地点表、场景列表、每场戏的戏剧目的。
+```ts
+type PlannerStageOutput = {
+  characters: ScriptCharacter[];
+  locations: ScriptLocation[];
+  scene_plan: PlannedScene[];
+};
+```
 
-#### Screenwriter
+阶段校验：
 
-负责生成符合 Schema 的剧本 JSON。
+- `scene_plan.source_chapters` 必须引用 Analyzer 章节。
+- `scene_plan.source_refs` 必须引用 Analyzer facts。
+- `scene_plan.location` 必须引用本阶段 locations。
+- `scene_plan.characters` 必须引用本阶段 characters。
+- 每个 `scene_card` 必须完整。
 
-输出：metadata、source、characters、locations、scenes、adaptation_report。
+### Screenwriter
 
-### 修复器
+输入 Analyzer 和 Planner 输出，输出：
 
-如果 Schema 校验失败，调用 Repair Prompt，只允许修改结构错误，不允许改写故事内容。
+```ts
+type ScreenwriterStageOutput = {
+  scenes: ScriptScene[];
+};
+```
 
-## 7. API 设计
+阶段校验：
+
+- `scenes` 必须覆盖全部 `scene_plan`，不能新增未规划场景。
+- 每个 beat 必须有 `function` 和 `source_refs`。
+- dialogue beat 必须有角色，且角色必须属于该 scene。
+
+### Reporter
+
+输入前三阶段输出，输出：
+
+```ts
+type ReporterStageOutput = {
+  title: string;
+  logline: string;
+  adaptation_report: AdaptationReport;
+};
+```
+
+阶段校验：
+
+- `chapter_count`、`scene_count`、`character_count` 必须与前三阶段输出一致。
+- `revision_suggestions` 表示后续可选改进，不表示已经发生的改编决策。
+
+## 5. ScriptForgeDocument 1.1
+
+1.1 的核心结构：
+
+```text
+script
+  schema_version: "1.1"
+  metadata
+  source.chapters[].key_facts
+  characters
+  locations
+  scenes[].source_refs
+  scenes[].scene_card
+  scenes[].beats[].function
+  scenes[].beats[].source_refs
+  adaptation_report
+```
+
+关键设计：
+
+- `key_facts`：逐章保存可改编事实，避免 AI 只写概括性段落。
+- `scene_card`：显式保存目标、阻碍、入场状态、转折、离场状态和场景氛围。
+- `beat.function`：声明 beat 的戏剧功能，如 `probe`、`evade`、`pressure`、`reveal`、`turn`。
+- `source_refs`：scene 和 beat 都必须引用 `key_facts`，让改编可追溯到原文事实。
+
+## 6. 校验策略
+
+### JSON Schema
+
+负责：
+
+- 必填字段、字段类型、枚举值。
+- `schema_version === "1.1"`。
+- 每章 `key_facts` 至少 3 条。
+- 每个 scene 必须有 `source_refs` 和完整 `scene_card`。
+- 每个 beat 必须有 `function` 和 `source_refs`。
+
+### 应用层引用校验
+
+负责：
+
+- `scene.location` 必须存在于 `locations`。
+- `scene.characters` 和 `dialogue.character` 必须存在于 `characters`。
+- `scene.source_chapters` 必须存在于 `source.chapters`。
+- `scene.source_refs` 和 `beats[].source_refs` 必须存在于 `source.chapters[].key_facts`。
+- `fact id` 必须全局唯一。
+
+### 质量门禁
+
+结构合法不代表成品可用。质量门禁继续判断：
+
+- 容量、字数、对白数量和估算时长。
+- 摘要化 beat、结果式 action、干对白。
+- 缺少 `turning_point`。
+- `entry_state` 与 `exit_state` 无变化。
+- 缺少对白攻防轮次。
+- 缺少 `pressure/reveal/turn/reaction` 等推进功能。
+- 原文 facts 未被 scene 或 beat 使用。
+
+质量状态：
+
+- `ai_success`：Schema、引用和质量门禁通过。
+- `degraded`：可用但存在警告。
+- `needs_revision`：结构合法，但剧本容量或戏剧结构不足。
+- `error`：AI 请求、解析、Schema 或引用校验失败。
+
+## 7. API
 
 ### POST /api/generate
 
-输入：章节、目标剧本类型、语言、目标时长。
+输入：`GenerationRequest`、`sourceText` 或 `workspaceId`。
 
-输出：剧本对象、YAML、校验结果、改编报告。
+输出：`ScriptForgeDocument 1.1`、YAML、校验结果、质量诊断、阶段诊断和可选 `stageOutputs`。
+
+### POST /api/revise
+
+输入：当前 1.1 文档、原始请求、后续修改建议。
+
+要求：改写时必须维护 `key_facts`、`source_refs`、`scene_card`、`beat.function`，不能只改正文。
 
 ### POST /api/validate
 
 输入：YAML 或 JSON。
 
-输出：解析结果、Schema 错误、应用层引用错误。
+输出：Schema 错误、引用错误、警告和最近有效候选。
 
 ### POST /api/repair
 
-输入：当前结构化对象、校验错误。
+输入：当前结构化对象或 YAML。
 
-输出：修复后的对象、YAML、校验结果。
+输出：修复后的 1.1 文档、YAML、修复项和剩余诊断。Repair 只修结构、类型和引用，不做 1.0 迁移。
 
-## 8. 校验策略
+## 8. 容错
 
-校验分两层。
+- 未配置 AI provider 时返回明确配置错误，不生成替代剧本。
+- 任一阶段模型输出不是 JSON 时返回该阶段解析错误。
+- 任一阶段引用或结构校验失败时进入 `error`。
+- 最终 Schema 或引用失败时进入 `error`。
+- 质量不足但结构合法时进入 `needs_revision`，允许预览和继续改写。
 
-### JSON Schema 校验
-
-负责字段类型、必填字段、枚举值和基本结构。
-
-例如：
-
-- script.title 必填。
-- characters 必须是数组。
-- scene.beats 至少有一项。
-- dialogue beat 必须包含 character。
-
-### 应用层校验
-
-负责跨引用关系，JSON Schema 不适合完整处理这些规则。
-
-例如：
-
-- scene.characters 中的角色 ID 必须存在于 characters。
-- dialogue.character 必须存在于当前 scene.characters。
-- scene.location 必须存在于 locations。
-- scene.source_chapters 必须存在于 source.chapters。
-
-## 9. 前端状态
-
-第一版可以使用 React state 或 Zustand。
-
-建议状态：
-
-```ts
-type WorkspaceState = {
-  chapters: NovelChapter[];
-  mode: "short_drama" | "film" | "stage";
-  generating: boolean;
-  scriptJson: unknown | null;
-  yamlText: string;
-  validation: ValidationResult | null;
-  activeView: "preview" | "yaml" | "report";
-};
-```
-
-## 10. 容错设计
-
-### API 调用失败
-
-展示错误信息，并允许用户使用内置示例结果继续演示。
-
-### 模型输出不是 JSON
-
-先尝试提取 JSON 代码块，再进行解析；失败则提示重新生成。
-
-### Schema 校验失败
-
-展示错误路径和错误说明，提供自动修复按钮。
-
-### 现场网络异常
-
-准备一份内置 demo 输出，确保演示可以继续。
-
-## 11. Demo 优先级
-
-技术实现应按以下顺序推进：
-
-1. 静态样例数据跑通工作台。
-2. Schema 校验和 YAML 导出跑通。
-3. AI generate API 接入。
-4. 自动修复接入。
-5. UI 打磨和演示脚本。
-
-先做可演示闭环，再补真实 AI 能力。这是 48 小时内最稳的路线。
+MVP 不再保留 fallback 生成结果路径。

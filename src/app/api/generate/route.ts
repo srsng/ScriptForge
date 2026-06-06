@@ -74,6 +74,7 @@ export async function POST(request: Request) {
       validation: result.validation,
       scriptYaml: result.document ? documentToYaml(result.document) : undefined,
       diagnostics: result.diagnostics,
+      stageOutputs: result.stageOutputs,
       error: result.error,
       resultSource,
       status: result.status,

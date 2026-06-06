@@ -44,6 +44,7 @@ export function ScriptPreviewPanel({ document, validation }: ScriptPreviewPanelP
   const characters = new Map(script.characters.map((character) => [character.id, character]));
   const locations = new Map(script.locations.map((location) => [location.id, location]));
   const chapters = new Map(script.source.chapters.map((chapter) => [chapter.id, chapter]));
+  const facts = new Map(script.source.chapters.flatMap((chapter) => chapter.key_facts.map((fact) => [fact.id, fact] as const)));
   const firstSourceByCharacter = buildFirstSourceByCharacter(script.scenes, chapters);
   const sceneTitlesByLocation = buildSceneTitlesByLocation(script.scenes);
 
@@ -59,6 +60,26 @@ export function ScriptPreviewPanel({ document, validation }: ScriptPreviewPanelP
       </div>
 
       <ValidationIssues validation={validation} />
+
+      <div className="rounded-md border border-zinc-200 p-3">
+        <h3 className="font-semibold">原文事实板</h3>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          {script.source.chapters.map((chapter) => (
+            <article className="rounded-md bg-zinc-50 p-3 text-sm" key={chapter.id}>
+              <div className="font-medium">{chapter.title}</div>
+              <p className="mt-1 text-zinc-600">{chapter.summary}</p>
+              <ul className="mt-2 space-y-1 text-zinc-700">
+                {chapter.key_facts.map((fact) => (
+                  <li key={fact.id}>
+                    <code className="rounded bg-white px-1 text-xs">{fact.id}</code>
+                    <span className="ml-1 text-xs text-zinc-500">{fact.type}</span>：{fact.content}
+                  </li>
+                ))}
+              </ul>
+            </article>
+          ))}
+        </div>
+      </div>
 
       <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-md border border-zinc-200 p-3">
@@ -118,6 +139,12 @@ export function ScriptPreviewPanel({ document, validation }: ScriptPreviewPanelP
                 </div>
 
                 <div className="mt-3 space-y-2 text-sm">
+                  <p><span className="font-medium">场景目标：</span>{scene.scene_card.objective}</p>
+                  <p><span className="font-medium">阻碍：</span>{scene.scene_card.opposition}</p>
+                  <p><span className="font-medium">入场状态：</span>{scene.scene_card.entry_state}</p>
+                  <p><span className="font-medium">转折：</span>{scene.scene_card.turning_point}</p>
+                  <p><span className="font-medium">离场状态：</span>{scene.scene_card.exit_state}</p>
+                  <p><span className="font-medium">场景氛围：</span>{scene.scene_card.visual_atmosphere}</p>
                   <p><span className="font-medium">戏剧目的：</span>{scene.dramatic_purpose || "缺少 dramatic_purpose"}</p>
                   <p><span className="font-medium">冲突：</span>{scene.conflict || "缺少 conflict"}</p>
                   <p>
@@ -126,7 +153,7 @@ export function ScriptPreviewPanel({ document, validation }: ScriptPreviewPanelP
                   </p>
                 </div>
 
-                <SourceTrace scene={scene} chapters={chapters} />
+                <SourceTrace scene={scene} chapters={chapters} facts={facts} />
 
                 <div className="mt-3 rounded-md bg-white p-3 text-sm">
                   <p className="font-medium">改编说明</p>
@@ -148,9 +175,11 @@ export function ScriptPreviewPanel({ document, validation }: ScriptPreviewPanelP
                       <div className="rounded-md bg-white px-3 py-2 text-sm" key={`${scene.id}-beat-${index}`}>
                         <div className="mb-1 flex flex-wrap items-center gap-2">
                           <span className={`rounded border px-2 py-0.5 text-xs ${beatTone[beat.type]}`}>{beatTypeLabel(beat.type)}</span>
+                          <span className="rounded border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs text-zinc-700">{beat.function}</span>
                           {beat.type === "dialogue" ? <span className="font-semibold text-zinc-900">speaker：{speaker || "缺少说话人"}</span> : null}
                         </div>
                         <p className={beat.type === "dialogue" ? "text-zinc-950" : "text-zinc-700"}>{beat.content || "缺少 beat 内容"}</p>
+                        <p className="mt-1 text-xs text-zinc-500">来源事实：{beat.source_refs.join("、")}</p>
                       </div>
                     );
                   }) : (
@@ -208,9 +237,11 @@ function ValidationIssues({ validation }: { validation: ValidationResult | null 
 function SourceTrace({
   scene,
   chapters,
+  facts,
 }: {
   scene: ScriptScene;
   chapters: Map<string, { id: string; title: string; summary: string }>;
+  facts: Map<string, { id: string; type: string; content: string }>;
 }) {
   return (
     <div className="mt-3 rounded-md bg-white p-3 text-sm">
@@ -238,6 +269,24 @@ function SourceTrace({
           })}
         </div>
       )}
+      <div className="mt-3">
+        <p className="font-medium">来源事实</p>
+        {scene.source_refs.length === 0 ? (
+          <p className="mt-2 text-amber-700">缺少来源事实：这个场景没有 source_refs。</p>
+        ) : (
+          <ul className="mt-2 space-y-1 text-zinc-700">
+            {scene.source_refs.map((factId) => {
+              const fact = facts.get(factId);
+              return (
+                <li className={fact ? "" : "text-red-700"} key={`${scene.id}-source_refs-${factId}`}>
+                  <code className="rounded bg-zinc-50 px-1 text-xs">{factId}</code>
+                  {fact ? ` ${fact.type}：${fact.content}` : " 引用不存在"}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }

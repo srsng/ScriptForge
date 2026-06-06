@@ -49,7 +49,7 @@ for (const [label, pattern] of [
   assert.match(workbenchUi, pattern, `M6 workbench UI missing ${label}`);
 }
 
-for (const token of ["buildGenerationPrompts", "flattenForSingleRequest", "buildCombinedMessages"]) {
+for (const token of ["buildAnalyzerPrompt", "buildPlannerPrompt", "buildScreenwriterPrompt", "buildReporterPrompt"]) {
   assert.match(prompts, new RegExp(`export function ${token}`), `prompts.ts missing exported ${token}`);
 }
 for (const token of [
@@ -67,16 +67,39 @@ for (const token of [
 ]) {
   assert.match(prompts, new RegExp(token), `prompts.ts must preserve source-grounded generation instruction: ${token}`);
 }
+assert.doesNotMatch(prompts, /export function flattenForSingleRequest/, "prompts.ts must not expose the old single-request flatten helper");
+assert.doesNotMatch(prompts, /export function buildCombinedMessages/, "prompts.ts must not expose the old combined-message helper");
 
 assert.match(types, /export type GenerationResult = GenerateAdaptationResult;/, "types.ts missing GenerationResult alias");
+assert.match(types, /AnalyzerStageOutput/, "types.ts missing analyzer stage output type");
+assert.match(types, /PlannerStageOutput/, "types.ts missing planner stage output type");
+assert.match(types, /ScreenwriterStageOutput/, "types.ts missing screenwriter stage output type");
+assert.match(types, /ReporterStageOutput/, "types.ts missing reporter stage output type");
+assert.match(types, /GenerationStageOutputs/, "types.ts missing combined stage outputs type");
 assert.match(generate, /severity: GenerationDiagnostic\["severity"\] = "info"/, "generate.ts diagnostic severity must match type");
 assert.match(generate, /evaluateScriptDensity/, "generation must run the density quality gate after schema validation");
 assert.match(generate, /needs_revision/, "generation must return needs_revision for quality-failed AI drafts");
+assert.match(generate, /buildAnalyzerPrompt/, "generation must call analyzer stage prompt");
+assert.match(generate, /buildPlannerPrompt/, "generation must call planner stage prompt");
+assert.match(generate, /buildScreenwriterPrompt/, "generation must call screenwriter stage prompt");
+assert.match(generate, /buildReporterPrompt/, "generation must call reporter stage prompt");
+assert.match(generate, /runStage/, "generation must execute explicit stage requests");
+assert.match(generate, /parseAnalyzerOutput/, "generation must validate analyzer output");
+assert.match(generate, /parsePlannerOutput/, "generation must validate planner output");
+assert.match(generate, /parseScreenwriterOutput/, "generation must validate screenwriter output");
+assert.match(generate, /parseReporterOutput/, "generation must validate reporter output");
+assert.match(generate, /assembleDocument/, "generation must assemble final ScriptForgeDocument from stage outputs");
+assert.match(generate, /GENERATION_STAGE_TIMEOUT_MS/, "generation must support configurable stage timeout");
+assert.doesNotMatch(generate, /flattenForSingleRequest/, "production generation must not flatten stages into one model request");
 assert.doesNotMatch(generate, new RegExp(legacyGeneratedBuilder), "production generation must not call generated substitute builder");
 assert.doesNotMatch(generate, new RegExp(legacyGeneratedStatus), "production generation must not return generated substitute status");
 assert.match(generate, /target_duration_minutes:/, "generation request normalization must include target duration");
+assert.match(client, /timeoutMs\?: number/, "AI client must accept per-request timeout");
+assert.match(client, /AbortSignal\.timeout\(timeoutMs\)/, "AI client must apply per-request timeout");
 assert.match(client, /"OPENAI_API_KEY"/, "AI client must read OPENAI_API_KEY");
 assert.match(technicalDesign, /OPENAI_API_KEY=/, "technical design must document OPENAI_API_KEY configuration");
+assert.match(technicalDesign, /多轮串行 API 编排/, "technical design must document multi-round generation");
+assert.match(technicalDesign, /GENERATION_STAGE_TIMEOUT_MS=/, "technical design must document stage timeout configuration");
 assert.doesNotMatch(technicalDesign, /^AI_API_KEY=/m, "technical design must not document an unsupported AI_API_KEY alias");
 assert.doesNotMatch(route, /Number\.isFinite\(Number\(target\.target_duration_minutes\)\)/, "generate route must reject invalid target duration instead of accepting any finite number");
 assert.match(route, /normalizeTargetDuration/, "generate route must use shared target duration validation");
@@ -88,5 +111,6 @@ assert.doesNotMatch(workbench, /persist:/, "MVP workbench must persist full stat
 assert.match(workbench, /const currentGenerationRequest: GenerationRequest = useMemo\(\(\) => \(\{[\s\S]*chapters:\s*normalization\.chapters/s, "workbench must build the generation request from current normalized chapters");
 assert.match(workbench, /request:\s*currentGenerationRequest/, "workbench must send the currently edited generation request");
 assert.match(page, /WorkbenchShell/, "page.tsx must delegate to the M6 workbench shell");
+assert.match(route, /stageOutputs/, "generate route must expose optional stageOutputs for diagnostics");
 
 console.log("validate:m4 ok");
