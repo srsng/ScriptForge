@@ -16,6 +16,7 @@
     "validate:m5": "node scripts/validate-m5.mjs",
     "validate:m6": "node scripts/validate-m6.mjs",
     "validate:m7": "node scripts/validate-m7.mjs",
+    "validate:generation-quality": "node --no-warnings scripts/validate-generation-quality.mjs",
     "validate:workspace-state": "node scripts/validate-workspace-state.mjs"
   },
   "dependencies": {

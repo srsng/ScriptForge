@@ -207,7 +207,7 @@ export async function requestJsonFromModel(messages: PromptMessage[]): Promise<M
     return {
       ok: false,
       model: DEFAULT_MODEL,
-      message: "未配置 OPENAI_API_KEY 或 BACKUP_OPENAI_API_KEY，跳过 AI 调用并启用降级生成。",
+      message: "未配置 OPENAI_API_KEY 或 BACKUP_OPENAI_API_KEY，无法执行 AI 生成。",
     };
   }
 

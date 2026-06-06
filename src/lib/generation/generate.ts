@@ -2,16 +2,21 @@ import type { GenerationRequest, ScriptForgeDocument } from "@/types/scriptforge
 import { MIN_CHAPTER_COUNT } from "@/types/scriptforge";
 import { validateScriptForgeDocument } from "@/lib/schema";
 import { requestJsonFromModel } from "./client";
-import { buildFallbackDocument } from "./fallback";
 import { buildGenerationPrompts, flattenForSingleRequest } from "./prompts";
+import { evaluateScriptDensity } from "./quality";
 import type { GenerationDiagnostic, GenerationResult } from "./types";
 
-function diagnostic(stage: GenerationDiagnostic["stage"], message: string, severity: GenerationDiagnostic["severity"] = "info"): GenerationDiagnostic {
-  return { stage, message, severity };
+function diagnostic(
+  stage: GenerationDiagnostic["stage"],
+  message: string,
+  severity: GenerationDiagnostic["severity"] = "info",
+  kind?: GenerationDiagnostic["kind"],
+): GenerationDiagnostic {
+  return { stage, message, severity, kind };
 }
 
-export function normalizeTargetDuration(value: unknown, fallback = 12): number | null {
-  if (value === undefined || value === null) return fallback;
+export function normalizeTargetDuration(value: unknown, defaultDuration = 12): number | null {
+  if (value === undefined || value === null) return defaultDuration;
   if (typeof value === "string" && value.trim().length === 0) return null;
   if (typeof value !== "number" && typeof value !== "string") return null;
 
@@ -66,17 +71,13 @@ export async function generateScriptForgeDocument(request: GenerationRequest): P
 
   const modelResponse = await requestJsonFromModel(flattenForSingleRequest(promptStages));
   if (!modelResponse.ok) {
-    const document = buildFallbackDocument(request, modelResponse.message);
-    const validation = validateScriptForgeDocument(document);
+    const message = modelResponse.message || "AI 生成请求失败。";
     return {
-      status: "fallback",
-      document,
-      validation,
+      status: "error",
+      error: message,
       diagnostics: [
         ...diagnostics,
-        diagnostic("screenwriter", modelResponse.message, "warning"),
-        diagnostic("fallback", "AI 不可用，返回内置可校验改编文档。", "warning"),
-        diagnostic("validation", `降级文档校验状态：${validation.status}。`, validation.valid ? "info" : "error"),
+        diagnostic("screenwriter", message, "error", modelResponse.status ? "network" : "configuration"),
       ],
       promptStages,
       model: modelResponse.model,
@@ -85,17 +86,12 @@ export async function generateScriptForgeDocument(request: GenerationRequest): P
 
   const parsed = parseModelJson(modelResponse.content);
   if (!parsed.ok) {
-    const document = buildFallbackDocument(request, parsed.message);
-    const validation = validateScriptForgeDocument(document);
     return {
-      status: "fallback",
-      document,
-      validation,
+      status: "error",
+      error: parsed.message,
       diagnostics: [
         ...diagnostics,
-        diagnostic("reporter", parsed.message, "error"),
-        diagnostic("fallback", "AI 输出不是合法 JSON，已改用降级文档。", "warning"),
-        diagnostic("validation", `降级文档校验状态：${validation.status}。`, validation.valid ? "info" : "error"),
+        diagnostic("reporter", parsed.message, "error", "parse"),
       ],
       promptStages,
       model: modelResponse.model,
@@ -105,31 +101,32 @@ export async function generateScriptForgeDocument(request: GenerationRequest): P
   const document = coerceDocument(parsed.value);
   const validation = validateScriptForgeDocument(document);
   if (validation.valid) {
+    const qualityDiagnostics = evaluateScriptDensity(document, request);
+    const hasQualityError = qualityDiagnostics.some((item) => item.severity === "error");
+    const hasWarning = validation.status === "warn" || qualityDiagnostics.some((item) => item.severity === "warning");
     return {
-      status: validation.status === "warn" ? "degraded" : "ai_success",
+      status: hasQualityError ? "needs_revision" : hasWarning ? "degraded" : "ai_success",
       document,
       validation,
       diagnostics: [
         ...diagnostics,
         diagnostic("screenwriter", "AI 返回 ScriptForgeDocument JSON。"),
         diagnostic("validation", `AI 文档校验状态：${validation.status}。`, validation.status === "warn" ? "warning" : "info"),
+        ...qualityDiagnostics,
       ],
       promptStages,
       model: modelResponse.model,
     };
   }
 
-  const fallback = buildFallbackDocument(request, `AI 文档未通过校验：${validation.errors.map((error) => error.message).slice(0, 3).join("；")}`);
-  const fallbackValidation = validateScriptForgeDocument(fallback);
+  const error = `AI 文档未通过 Schema 或引用校验：${validation.errors.map((item) => item.message).slice(0, 3).join("；")}`;
   return {
-    status: "fallback",
-    document: fallback,
-    validation: fallbackValidation,
+    status: "error",
+    error,
+    validation,
     diagnostics: [
       ...diagnostics,
-      diagnostic("validation", `AI 文档校验失败：${validation.errors.length} 个错误。`, "error"),
-      diagnostic("fallback", "返回可校验降级文档，并保留 AI 失败摘要。", "warning"),
-      diagnostic("validation", `降级文档校验状态：${fallbackValidation.status}。`, fallbackValidation.valid ? "info" : "error"),
+      diagnostic("validation", `AI 文档校验失败：${validation.errors.length} 个错误。`, "error", "schema"),
     ],
     promptStages,
     model: modelResponse.model,

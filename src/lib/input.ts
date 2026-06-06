@@ -6,7 +6,7 @@ export function createChapterId(index: number): string {
   return `ch_${String(index + 1).padStart(3, "0")}`;
 }
 
-export function createFallbackChapterTitle(index: number): string {
+export function createDefaultChapterTitle(index: number): string {
   return `第${index + 1}章 未命名章节`;
 }
 
@@ -85,7 +85,7 @@ export function normalizeNovelChapters(drafts: NovelChapterDraft[]): InputNormal
 
     chapters.push({
       id: createChapterId(chapters.length),
-      title: rawTitle || createFallbackChapterTitle(index),
+      title: rawTitle || createDefaultChapterTitle(index),
       content,
     });
   });

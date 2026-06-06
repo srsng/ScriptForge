@@ -96,7 +96,7 @@ function createWorkspaceId(now = new Date()): string {
 }
 
 function normalizeResultSource(value: unknown): WorkspaceResultSource {
-  return value === "ai" || value === "fallback" || value === "repair" || value === "manual" || value === "none"
+  return value === "ai" || value === "ai_draft" || value === "repair" || value === "manual" || value === "none"
     ? value
     : "none";
 }

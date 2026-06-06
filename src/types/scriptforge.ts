@@ -149,7 +149,7 @@ export type ScriptForgeDocument = {
   script: ScriptForgeScript;
 };
 
-export type WorkspaceResultSource = "none" | "ai" | "fallback" | "repair" | "manual";
+export type WorkspaceResultSource = "none" | "ai" | "ai_draft" | "repair" | "manual";
 
 export type WorkspaceState = {
   schema_version: "1.0";

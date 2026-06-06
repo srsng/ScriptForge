@@ -5,9 +5,9 @@
  *
  * 这个脚本不启动浏览器，专门做 UI 模块的静态契约验收：
  *   1. 工作台从单页堆叠拆成明确组件
- *   2. 仍然使用 M1-M5 已有 API，不改后端契约
+ *   2. 仍然使用 M1-M5 已有 API，并接入生成质量门禁契约
  *   3. 预览消费人物、地点、场景、来源章节和改编报告
- *   4. UI 明确展示 AI / fallback / repair / 校验 / 导出状态
+ *   4. UI 明确展示 AI / ai_draft / needs_revision / repair / 校验 / 导出状态
  */
 
 import assert from "node:assert/strict";
@@ -72,7 +72,9 @@ assertContains("src/components/workbench/WorkbenchShell.tsx", [
   "documentToYaml",
   "documentToJson",
   "documentToMarkdown",
-  "usedFallback",
+  "resultSource",
+  "needs_revision",
+  "ai_draft",
   "validation",
   "RepairResult",
 ]);
@@ -80,7 +82,9 @@ console.log("  ✓ Workbench keeps M1-M5 API wiring");
 
 assertContains("src/components/workbench/GenerationPanel.tsx", [
   "AI",
-  "fallback",
+  "needs_revision",
+  "结构化草稿",
+  "内容密度不足",
   "repair",
   "生成",
   "校验",
@@ -94,7 +98,8 @@ assertContains("src/components/workbench/QualityPanel.tsx", [
   "自动修复",
   "错误",
   "警告",
-  "fallback",
+  "needsRevision",
+  "不满足目标时长",
 ]);
 console.log("  ✓ Quality panel exposes validation and repair state");
 

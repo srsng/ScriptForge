@@ -54,16 +54,16 @@ type SampleResponse = {
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
-type GenerateState = "idle" | "loading" | "done" | "error";
+type GenerateState = "idle" | "loading" | "success" | "needs_revision" | "error";
 
 type GenerateResponse = {
   document?: ScriptForgeDocument;
   scriptYaml?: string;
   validation?: ValidationResult;
   diagnostics?: GenerationDiagnostic[];
-  usedFallback?: boolean;
+  resultSource?: ResultSource;
   workspaceId?: string;
-  status?: string;
+  status?: "ai_success" | "degraded" | "needs_revision" | "error";
   error?: string;
 };
 
@@ -267,18 +267,24 @@ export function WorkbenchShell() {
       });
       const data = (await response.json()) as GenerateResponse;
 
-      if (!response.ok || !data.document) {
+      if (!response.ok || data.status === "error") {
         throw new Error(data.error ?? "AI 生成失败");
+      }
+      if (!data.document) {
+        throw new Error(data.error ?? "AI 没有返回可展示的剧本草稿");
       }
 
       setResultText(jsonPreview(data.document));
       setYamlText(data.scriptYaml ?? documentToYaml(data.document));
       setYamlValidation(data.validation ?? null);
       setGenerationDiagnostics(data.diagnostics ?? []);
-      setGenerateState("done");
-      setResultSource(data.usedFallback ? "fallback" : "ai");
+      setGenerateState(data.status === "needs_revision" ? "needs_revision" : "success");
+      const source = data.resultSource ?? (data.status === "needs_revision" ? "ai_draft" : "ai");
+      setResultSource(source);
+      const successMessage = data.status === "needs_revision"
+        ? "AI 返回了结构化草稿，但内容密度不足，不满足目标时长，建议重新生成或手动加强。"
+        : "已生成 AI 剧本初稿";
       if (activeWorkspace) {
-        const source = data.usedFallback ? "fallback" : "ai";
         await saveCurrentWorkspaceState({
           result: data.document,
           resultSource: source,
@@ -286,12 +292,12 @@ export function WorkbenchShell() {
           yamlValidation: data.validation ?? null,
           generationDiagnostics: data.diagnostics ?? [],
           generationError: "",
-          message: data.usedFallback ? "已生成 fallback 降级剧本初稿" : "已生成 AI 剧本初稿",
+          message: successMessage,
         });
       } else {
         setHasUnsavedState(true);
       }
-      setMessage(data.usedFallback ? "已生成 fallback 降级剧本初稿" : "已生成 AI 剧本初稿");
+      setMessage(successMessage);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       setGenerationError(errorMessage);
@@ -550,6 +556,7 @@ export function WorkbenchShell() {
               repairResult={repairResult}
               repairing={repairing}
               resultSource={resultSource}
+              needsRevision={generateState === "needs_revision"}
               exportBlocked={yamlExportBlocked}
               onRepair={() => void handleAutoRepair()}
               onApplyRepair={handleApplyRepair}

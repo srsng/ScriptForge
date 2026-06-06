@@ -8,6 +8,7 @@ type QualityPanelProps = {
   repairResult: RepairResult | null;
   repairing: boolean;
   resultSource: ResultSource;
+  needsRevision: boolean;
   exportBlocked: boolean;
   onRepair: () => void;
   onApplyRepair: () => void;
@@ -18,6 +19,7 @@ export function QualityPanel({
   repairResult,
   repairing,
   resultSource,
+  needsRevision,
   exportBlocked,
   onRepair,
   onApplyRepair,
@@ -35,7 +37,7 @@ export function QualityPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">质量状态</h2>
-          <p className="text-sm text-zinc-600">ValidationResult / RepairResult 在这里汇总，fallback 状态不会被隐藏。</p>
+          <p className="text-sm text-zinc-600">ValidationResult / RepairResult 和内容密度门禁在这里汇总。</p>
         </div>
         <button
           className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:bg-zinc-300"
@@ -63,6 +65,12 @@ export function QualityPanel({
           </div>
         </div>
       </div>
+
+      {needsRevision ? (
+        <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          结构化草稿不满足目标时长或剧本密度要求：请重点补足场景过程、beats 数量和对白轮次后再作为成品处理。
+        </div>
+      ) : null}
 
       {validation && validation.errors.length > 0 ? (
         <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3">

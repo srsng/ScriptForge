@@ -1,7 +1,7 @@
 import type { ScriptForgeDocument, ScriptForgeScript } from "@/types/scriptforge";
 import type { ValidationResult } from "@/lib/schema";
 
-export type ResultSource = "none" | "ai" | "fallback" | "repair" | "manual";
+export type ResultSource = "none" | "ai" | "ai_draft" | "repair" | "manual";
 
 export function jsonPreview(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -50,8 +50,8 @@ export function resultSourceLabel(source: ResultSource): string {
   switch (source) {
     case "ai":
       return "AI 生成结果";
-    case "fallback":
-      return "fallback 降级结果";
+    case "ai_draft":
+      return "AI 结构化草稿";
     case "repair":
       return "repair 修复结果";
     case "manual":

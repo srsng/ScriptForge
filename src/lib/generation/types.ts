@@ -1,9 +1,9 @@
 import type { GenerationRequest, ScriptForgeDocument } from "@/types/scriptforge";
 import type { ValidationError, ValidationResult } from "@/lib/schema";
 
-export type GenerationStage = "analyzer" | "planner" | "screenwriter" | "reporter" | "validation" | "fallback";
+export type GenerationStage = "analyzer" | "planner" | "screenwriter" | "reporter" | "validation" | "quality";
 
-export type GenerationStatus = "ai_success" | "fallback" | "degraded";
+export type GenerationStatus = "ai_success" | "needs_revision" | "degraded" | "error";
 
 export type GenerationErrorKind =
   | "configuration"
@@ -12,6 +12,7 @@ export type GenerationErrorKind =
   | "schema"
   | "reference"
   | "validation"
+  | "quality"
   | "unknown";
 
 export type GenerationDiagnostic = {
@@ -28,7 +29,7 @@ export type PromptMessage = {
 };
 
 export type PromptBundle = {
-  stage: Exclude<GenerationStage, "validation" | "fallback">;
+  stage: Exclude<GenerationStage, "validation" | "quality">;
   messages: PromptMessage[];
   responseContract: string;
 };
@@ -46,16 +47,16 @@ export type AiClient = {
 
 export type GenerateAdaptationOptions = {
   aiClient?: AiClient;
-  forceFallback?: boolean;
 };
 
 export type GenerateAdaptationResult = {
   status: GenerationStatus;
-  document: ScriptForgeDocument;
-  validation: ValidationResult;
+  document?: ScriptForgeDocument;
+  validation?: ValidationResult;
   diagnostics: GenerationDiagnostic[];
   promptStages: PromptBundle[];
   model?: string;
+  error?: string;
 };
 
 export type GenerationResult = GenerateAdaptationResult;

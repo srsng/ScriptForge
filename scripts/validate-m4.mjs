@@ -11,7 +11,6 @@ const workbench = read("src/components/workbench/WorkbenchShell.tsx");
 const generationPanel = read("src/components/workbench/GenerationPanel.tsx");
 const client = read("src/lib/generation/client.ts");
 const technicalDesign = read("docs/technical-design.md");
-const fallback = read("src/lib/generation/fallback.ts");
 const generate = read("src/lib/generation/generate.ts");
 const prompts = read("src/lib/generation/prompts.ts");
 const types = read("src/lib/generation/types.ts");
@@ -26,10 +25,15 @@ for (const token of [
   "generateScriptForgeDocument",
   "documentToYaml",
   "diagnostics",
-  "usedFallback",
+  "resultSource",
+  "needs_revision",
 ]) {
-  assert.match(route, new RegExp(token), `generate route missing ${token}`);
+assert.match(route, new RegExp(token), `generate route missing ${token}`);
 }
+const legacyGeneratedResultFlag = ["used", "Fall", "back"].join("");
+const legacyGeneratedStatus = ["status:", "\\s*", '"fall', 'back"'].join("");
+const legacyGeneratedBuilder = ["build", "Fall", "back", "Document"].join("");
+assert.doesNotMatch(route, new RegExp(legacyGeneratedResultFlag), "generate route must not expose a generated substitute success flag");
 assert.doesNotMatch(route, /dotenv|\.env|SECRET|PRIVATE_KEY|API_KEY/i, "generate route must not read secrets directly");
 
 const workbenchUi = [page, workbench, generationPanel].join("\n");
@@ -57,12 +61,18 @@ for (const token of [
   "characters",
   "locations",
   "adaptation_report",
+  "内容密度",
+  "不要输出剧情摘要",
 ]) {
   assert.match(prompts, new RegExp(token), `prompts.ts must preserve source-grounded generation instruction: ${token}`);
 }
 
 assert.match(types, /export type GenerationResult = GenerateAdaptationResult;/, "types.ts missing GenerationResult alias");
 assert.match(generate, /severity: GenerationDiagnostic\["severity"\] = "info"/, "generate.ts diagnostic severity must match type");
+assert.match(generate, /evaluateScriptDensity/, "generation must run the density quality gate after schema validation");
+assert.match(generate, /needs_revision/, "generation must return needs_revision for quality-failed AI drafts");
+assert.doesNotMatch(generate, new RegExp(legacyGeneratedBuilder), "production generation must not call generated substitute builder");
+assert.doesNotMatch(generate, new RegExp(legacyGeneratedStatus), "production generation must not return generated substitute status");
 assert.match(generate, /target_duration_minutes:/, "generation request normalization must include target duration");
 assert.match(client, /"OPENAI_API_KEY"/, "AI client must read OPENAI_API_KEY");
 assert.match(technicalDesign, /OPENAI_API_KEY=/, "technical design must document OPENAI_API_KEY configuration");
@@ -71,8 +81,7 @@ assert.doesNotMatch(route, /Number\.isFinite\(Number\(target\.target_duration_mi
 assert.match(route, /normalizeTargetDuration/, "generate route must use shared target duration validation");
 assert.match(route, /body\.request !== undefined[\s\S]*Invalid GenerationRequest payload/, "generate route must reject invalid explicit request payloads instead of falling back to workspace data");
 assert.match(generate, /Number\.isInteger/, "generation request normalization must require integer target duration");
-assert.match(generate, /throw new Error\([^)]*MIN_CHAPTER_COUNT/s, "generation must reject insufficient chapter input instead of returning invalid fallback");
-assert.match(fallback, /request\.chapters\.length < MIN_CHAPTER_COUNT/, "fallback builder must guard its minimum chapter precondition");
+assert.match(generate, /throw new Error\([^)]*MIN_CHAPTER_COUNT/s, "generation must reject insufficient chapter input instead of returning an invalid substitute");
 assert.doesNotMatch(workbench, /\?\s*\{\s*workspaceId:\s*activeWorkspace\.id,\s*persist:\s*true\s*\}/s, "workbench must not generate from stale workspace-only payload");
 assert.doesNotMatch(workbench, /persist:/, "MVP workbench must persist full state through workspace API, not generate result-only persistence");
 assert.match(workbench, /const currentGenerationRequest: GenerationRequest = useMemo\(\(\) => \(\{[\s\S]*chapters:\s*normalization\.chapters/s, "workbench must build the generation request from current normalized chapters");

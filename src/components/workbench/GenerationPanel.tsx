@@ -2,7 +2,7 @@ import type { GenerationDiagnostic } from "@/lib/generation/types";
 import type { ResultSource } from "./utils";
 import { resultSourceLabel } from "./utils";
 
-type GenerateState = "idle" | "loading" | "done" | "error";
+type GenerateState = "idle" | "loading" | "success" | "needs_revision" | "error";
 
 type GenerationPanelProps = {
   generateState: GenerateState;
@@ -14,6 +14,21 @@ type GenerationPanelProps = {
 };
 
 const stageLabels = ["输入", "生成", "校验", "repair", "导出"] as const;
+
+function generateStateLabel(state: GenerateState): string {
+  switch (state) {
+    case "loading":
+      return "生成中";
+    case "success":
+      return "成功";
+    case "needs_revision":
+      return "内容密度不足";
+    case "error":
+      return "失败";
+    case "idle":
+      return "待生成";
+  }
+}
 
 export function GenerationPanel({
   generateState,
@@ -28,7 +43,7 @@ export function GenerationPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">生成流程</h2>
-          <p className="text-sm text-zinc-600">AI 生成后进入校验；失败时显示 fallback 或 repair 状态，不隐藏来源。</p>
+          <p className="text-sm text-zinc-600">AI 生成后进入校验和内容密度门禁</p>
         </div>
         <button
           className="rounded-md bg-indigo-700 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-800 disabled:bg-zinc-300"
@@ -52,7 +67,7 @@ export function GenerationPanel({
       <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">
         <div className="rounded-md border border-zinc-200 p-3">
           <div className="font-medium">状态</div>
-          <div className="mt-1 text-zinc-600">{generateState === "loading" ? "生成中" : generateState === "error" ? "失败" : generateState === "done" ? "完成" : "待生成"}</div>
+          <div className="mt-1 text-zinc-600">{generateStateLabel(generateState)}</div>
         </div>
         <div className="rounded-md border border-zinc-200 p-3">
           <div className="font-medium">结果来源</div>
@@ -63,6 +78,12 @@ export function GenerationPanel({
           <div className="mt-1 text-zinc-600">{diagnostics.length} 条</div>
         </div>
       </div>
+
+      {generateState === "needs_revision" ? (
+        <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          结构化草稿已返回，但内容密度不足；请重新生成、调整目标时长，或手动补足 scene / beats / dialogue。
+        </div>
+      ) : null}
 
       {(generationError || diagnostics.length > 0) && (
         <div className="mt-4 space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">

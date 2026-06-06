@@ -20,6 +20,23 @@ const sourceGroundingRules = [
   "人物动机、arc、对白 voice 必须来自章节行为和冲突的合理改编，不得脱离原文。",
 ].join("\n- ");
 
+export function buildScriptDensityInstruction(targetDurationMinutes: number): string {
+  const minTotalBeats = Math.max(18, targetDurationMinutes * 3);
+  const minDialogueBeats = Math.max(4, Math.ceil(minTotalBeats * 0.3));
+
+  return `剧本密度要求：
+- target_duration_minutes 是成片/演出目标时长，不是装饰字段；本次目标是 ${targetDurationMinutes} 分钟。
+- 生成内容必须具备支撑目标时长的可演容量，总 beats 不少于 ${minTotalBeats}，dialogue beats 不少于 ${minDialogueBeats}。
+- 不要输出剧情摘要，不要只列事件梗概，不允许每章只压缩成一场几句话。
+- 每个 scene 必须是可直接拍摄、排练、继续编辑的完整场面，而不是章节总结。
+- 每个主要 scene 至少 8 个 beats，推荐 10-14 个 beats；如果 scene 数较少，每个 scene 必须更长、更完整。
+- 每个主要 scene 至少包含 4 个 dialogue beats，action 与 dialogue 必须交错推进。
+- dialogue 不能只解释信息，必须体现人物关系、情绪、潜台词和攻防变化。
+- action 不能只写“某事发生”，要写可拍摄动作、屏幕反馈、人物反应、停顿和环境变化。
+- 每个 scene 必须包含：场景进入、行动目标、阻碍或冲突、推进过程、情绪或关系变化、转折点、场景收束。
+- 禁止用“某人完成某事”替代可演动作，禁止用一句对白跳过心理变化，禁止为了简短牺牲内容密度。`;
+}
+
 const schemaInstructions = `输出必须是完整 ScriptForgeDocument，且只包含 Schema 允许字段：
 {
   "script": {
@@ -83,16 +100,20 @@ const schemaInstructions = `输出必须是完整 ScriptForgeDocument，且只�
 }`;
 
 function finalGenerationInstruction(request: GenerationRequest, sharedContext: string): string {
+  const densityInstruction = buildScriptDensityInstruction(request.target.target_duration_minutes);
+
   return `${sharedContext}
 
 请在内部严格按四阶段工作，但最终只输出最后的 JSON：
 1. Analyzer：逐章提取人物、地点、事件、情绪转折、冲突、可改编动作，并记录章节 id。
-2. Planner：把 Analyzer 结果规划为 3-5 场戏；每场必须有 source_chapters、地点、出场人物、戏剧目的和冲突。
-3. Screenwriter：把计划写成可拍摄剧本 beats；动作和对白都必须贴合原章节，不要写与原文无关的通用桥段。
+2. Planner：把 Analyzer 结果规划为能支撑 target_duration_minutes 的分场结构；每场必须有 source_chapters、地点、出场人物、戏剧目的和冲突。
+3. Screenwriter：把计划扩写成可拍摄、可排练的剧本 beats；动作和对白都必须贴合原章节，不要写与原文无关的通用桥段。
 4. Reporter：按 Schema 汇总完整 ScriptForgeDocument，并保证所有引用存在。
 
 来源约束：
 - ${sourceGroundingRules}
+
+${densityInstruction}
 
 结构约束：
 - ID 必须使用 ch_001、char_001、loc_001、scene_001 这种格式。
@@ -109,6 +130,7 @@ ${schemaInstructions}`;
 
 export function buildPromptStages(request: GenerationRequest): PromptBundle[] {
   const sharedContext = `目标格式：${request.target.format}\n类型：${request.target.genre}\n时长：${request.target.target_duration_minutes} 分钟\n气质：${request.target.tone}\n\n小说章节：\n${chapterDigest(request)}`;
+  const densityInstruction = buildScriptDensityInstruction(request.target.target_duration_minutes);
 
   return [
     {
@@ -121,18 +143,18 @@ export function buildPromptStages(request: GenerationRequest): PromptBundle[] {
     },
     {
       stage: "planner",
-      responseContract: "Planner 根据 Analyzer 结果规划 scene_plan、character_plan、location_plan、compression_plan。",
+      responseContract: "Planner 根据 Analyzer 结果规划能支撑目标时长的 scene_plan、character_plan、location_plan、compression_plan。",
       messages: [
-        { role: "system", content: `你是 ScriptForge Planner，负责把分析结果规划成短时长改编方案。${jsonOnly}` },
-        { role: "user", content: `${sharedContext}\n\n请规划 3-5 个场景，每场必须列 source_chapters、地点、人物、冲突和戏剧目的。\n\n来源约束：\n- ${sourceGroundingRules}` },
+        { role: "system", content: `你是 ScriptForge Planner，负责把分析结果规划成足量、可演、可拍的改编方案。${jsonOnly}` },
+        { role: "user", content: `${sharedContext}\n\n请规划能支撑 target_duration_minutes 的场景结构，每个 scene 必须列 source_chapters、地点、人物、冲突和戏剧目的。\n\n来源约束：\n- ${sourceGroundingRules}\n\n${densityInstruction}` },
       ],
     },
     {
       stage: "screenwriter",
-      responseContract: "Screenwriter 输出贴源文本的 scenes、beats、dialogue、adaptation_notes。",
+      responseContract: "Screenwriter 输出贴源文本且具备内容密度的 scenes、beats、dialogue、adaptation_notes。",
       messages: [
         { role: "system", content: `你是 ScriptForge Screenwriter，负责写可校验剧本 JSON。${jsonOnly}` },
-        { role: "user", content: `${sharedContext}\n\n请生成完整 script 对象，所有 id 使用 ch_001/char_001/loc_001/scene_001 样式。对白和动作必须贴合输入章节。\n\n${schemaInstructions}` },
+        { role: "user", content: `${sharedContext}\n\n请生成完整 script 对象，所有 id 使用 ch_001/char_001/loc_001/scene_001 样式。对白和动作必须贴合输入章节，并满足内容密度要求。\n\n${densityInstruction}\n\n${schemaInstructions}` },
       ],
     },
     {
