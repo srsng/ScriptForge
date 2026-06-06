@@ -10,6 +10,15 @@ function diagnostic(stage: GenerationDiagnostic["stage"], message: string, sever
   return { stage, message, severity };
 }
 
+export function normalizeTargetDuration(value: unknown, fallback = 12): number | null {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === "string" && value.trim().length === 0) return null;
+  if (typeof value !== "number" && typeof value !== "string") return null;
+
+  const duration = Number(value);
+  return Number.isInteger(duration) && duration >= 1 && duration <= 180 ? duration : null;
+}
+
 export function normalizeGenerationRequest(input: unknown): GenerationRequest | null {
   if (!input || typeof input !== "object") return null;
   const candidate = input as Partial<GenerationRequest>;
@@ -30,41 +39,30 @@ export function normalizeGenerationRequest(input: unknown): GenerationRequest | 
     .filter((chapter): chapter is GenerationRequest["chapters"][number] => chapter !== null);
 
   const target = candidate.target as Partial<GenerationRequest["target"]>;
-  const duration = Number(target.target_duration_minutes ?? 12);
+  const duration = normalizeTargetDuration(target.target_duration_minutes);
+  if (duration === null) return null;
 
   return {
     chapters,
     target: {
       format: target.format === "film" || target.format === "stage" ? target.format : "short_drama",
       genre: typeof target.genre === "string" && target.genre.trim() ? target.genre.trim() : "悬疑剧情",
-      target_duration_minutes: Number.isFinite(duration) && duration > 0 ? duration : 12,
+      target_duration_minutes: duration,
       tone: typeof target.tone === "string" && target.tone.trim() ? target.tone.trim() : "紧凑、可拍摄",
     },
   };
 }
 
 export async function generateScriptForgeDocument(request: GenerationRequest): Promise<GenerationResult> {
+  if (request.chapters.length < MIN_CHAPTER_COUNT) {
+    throw new Error(`至少需要 ${MIN_CHAPTER_COUNT} 章有效输入。`);
+  }
+
   const promptStages = buildGenerationPrompts(request);
   const diagnostics: GenerationDiagnostic[] = [
     diagnostic("analyzer", `接收 ${request.chapters.length} 章小说输入。`),
     diagnostic("planner", `目标：${request.target.format} / ${request.target.genre} / ${request.target.target_duration_minutes} 分钟。`),
   ];
-
-  if (request.chapters.length < MIN_CHAPTER_COUNT) {
-    const document = buildFallbackDocument(request, `输入章节少于 ${MIN_CHAPTER_COUNT} 章，启用可校验降级文档。`);
-    const validation = validateScriptForgeDocument(document);
-    return {
-      status: "fallback",
-      document,
-      validation,
-      diagnostics: [
-        ...diagnostics,
-        diagnostic("fallback", `至少需要 ${MIN_CHAPTER_COUNT} 章有效输入。`, "warning"),
-        diagnostic("validation", `降级文档校验状态：${validation.status}。`, validation.valid ? "info" : "error"),
-      ],
-      promptStages,
-    };
-  }
 
   const modelResponse = await requestJsonFromModel(flattenForSingleRequest(promptStages));
   if (!modelResponse.ok) {

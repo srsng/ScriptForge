@@ -1,4 +1,4 @@
-import type { GenerationRequest, ScriptForgeDocument } from "@/types/scriptforge";
+import { MIN_CHAPTER_COUNT, type GenerationRequest, type ScriptForgeDocument } from "@/types/scriptforge";
 
 function clean(value: string | undefined, fallback: string): string {
   const text = value?.trim();
@@ -17,6 +17,10 @@ function shortTitle(title: string, index: number): string {
 }
 
 export function buildFallbackDocument(request: GenerationRequest, reason = "AI 结果不可用，使用运行时降级生成。") : ScriptForgeDocument {
+  if (request.chapters.length < MIN_CHAPTER_COUNT) {
+    throw new Error(`Fallback document requires at least ${MIN_CHAPTER_COUNT} chapters.`);
+  }
+
   const chapters = request.chapters.slice(0, Math.max(3, request.chapters.length));
   const sourceChapters = chapters.map((chapter, index) => ({
     id: chapter.id,
