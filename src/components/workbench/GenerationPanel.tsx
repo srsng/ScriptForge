@@ -4,11 +4,19 @@ import { resultSourceLabel } from "./utils";
 
 type GenerateState = "idle" | "loading" | "success" | "needs_revision" | "error";
 
+export type GenerationStagePreview = {
+  stage: "analyzer" | "planner" | "screenwriter" | "reporter";
+  label: string;
+  summary: string;
+  json: string;
+};
+
 type GenerationPanelProps = {
   generateState: GenerateState;
   generationElapsedSeconds: number;
   generationError: string;
   diagnostics: GenerationDiagnostic[];
+  stagePreviews: GenerationStagePreview[];
   resultSource: ResultSource;
   targetDurationMinutes: number;
   canGenerate: boolean;
@@ -37,6 +45,7 @@ export function GenerationPanel({
   generationElapsedSeconds,
   generationError,
   diagnostics,
+  stagePreviews,
   resultSource,
   targetDurationMinutes,
   canGenerate,
@@ -100,6 +109,24 @@ export function GenerationPanel({
         </div>
       ) : null}
 
+      {stagePreviews.length > 0 ? (
+        <div className="mt-4 rounded-md border border-zinc-200 bg-white p-3 text-sm">
+          <div className="font-medium">阶段结果</div>
+          <div className="mt-2 space-y-2">
+            {stagePreviews.map((preview) => (
+              <details className="rounded-md border border-zinc-200 bg-zinc-50 p-2" key={preview.stage}>
+                <summary className="cursor-pointer font-medium text-zinc-800">
+                  {preview.label}：{preview.summary}
+                </summary>
+                <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-950 p-3 text-xs leading-5 text-zinc-50">
+                  {preview.json}
+                </pre>
+              </details>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {(generationError || diagnostics.length > 0) && (
         <div className="mt-4 space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
           {generationError ? <p className="font-medium text-red-700">{generationError}</p> : null}
@@ -108,6 +135,7 @@ export function GenerationPanel({
               {diagnostics.map((item, index) => (
                 <li key={`${item.stage}-${index}`}>
                   <span className="font-medium">[{item.severity ?? "info"}] {item.stage}</span>：{item.message}
+                  {item.details ? <div className="mt-0.5 text-xs text-zinc-500">{item.details}</div> : null}
                 </li>
               ))}
             </ul>

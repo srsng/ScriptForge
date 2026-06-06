@@ -32,6 +32,15 @@ export type GenerationDiagnostic = {
   details?: string;
 };
 
+export type GenerationStageMetrics = {
+  elapsedMs: number;
+  timeoutMs: number;
+  promptChars: number;
+  responseChars: number;
+  provider?: "main" | "backup";
+  model?: string;
+};
+
 export type PromptMessage = {
   role: "system" | "user" | "assistant";
   content: string;
@@ -83,6 +92,23 @@ export type GenerationStageOutputs = {
   planner?: PlannerStageOutput;
   screenwriter?: ScreenwriterStageOutput;
   reporter?: ReporterStageOutput;
+};
+
+export type GenerationStageResult<T> = {
+  status: "ok";
+  output: T;
+  diagnostics: GenerationDiagnostic[];
+  prompt: PromptBundle;
+  metrics: GenerationStageMetrics;
+  model?: string;
+} | {
+  status: "error";
+  error: string;
+  diagnostics: GenerationDiagnostic[];
+  prompt: PromptBundle;
+  metrics: GenerationStageMetrics;
+  model?: string;
+  kind?: GenerationErrorKind;
 };
 
 export type OpenAiCompatibleConfig = {
