@@ -11,22 +11,20 @@ type InputPanelProps = {
   rawInput: string;
   normalization: InputNormalizationResult;
   sampleMeta: SampleMeta | null;
-  saveDisabled: boolean;
-  saving: boolean;
+  sampleChapterCount: number;
   onRawInputChange: (value: string) => void;
+  onSampleChapterCountChange: (value: number) => void;
   onLoadSample: () => void;
-  onSaveWorkspace: () => void;
 };
 
 export function InputPanel({
   rawInput,
   normalization,
   sampleMeta,
-  saveDisabled,
-  saving,
+  sampleChapterCount,
   onRawInputChange,
+  onSampleChapterCountChange,
   onLoadSample,
-  onSaveWorkspace,
 }: InputPanelProps) {
   return (
     <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
@@ -34,14 +32,21 @@ export function InputPanel({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
           <div>
             <h2 className="text-lg font-semibold">章节输入</h2>
-            <p className="text-sm text-zinc-600">至少 3 章；支持 第一章、第一回、Chapter 1、1. 标题。</p>
+            <p className="text-sm text-zinc-600">粘贴原文或载入内置测试样本；至少 3 章后才能生成。</p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="text-xs font-medium text-zinc-600">
+              连续章节数
+              <input
+                className="mt-1 block w-24 rounded-md border border-zinc-300 px-2 py-2 text-sm text-zinc-950 outline-none focus:border-cyan-700"
+                min={3}
+                onChange={(event) => onSampleChapterCountChange(Number.parseInt(event.target.value, 10))}
+                type="number"
+                value={sampleChapterCount}
+              />
+            </label>
             <button className="rounded-md border border-cyan-700 px-3 py-2 text-sm font-medium text-cyan-800 hover:bg-cyan-50" onClick={onLoadSample} type="button">
-              载入公开样本
-            </button>
-            <button className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-800 disabled:bg-zinc-300" disabled={saveDisabled} onClick={onSaveWorkspace} type="button">
-              {saving ? "保存中..." : "保存工作区"}
+              随机载入《全职高手》片段
             </button>
           </div>
         </div>
@@ -91,7 +96,7 @@ export function InputPanel({
 
         {sampleMeta ? (
           <div className="rounded-lg border border-zinc-200 bg-white p-4 text-sm shadow-sm">
-            <h2 className="text-lg font-semibold">样本来源</h2>
+            <h2 className="text-lg font-semibold">内置测试样本</h2>
             <p className="mt-2">{sampleMeta.title}</p>
             <p className="text-zinc-600">{sampleMeta.author}</p>
             <p className="mt-2 text-zinc-600">{sampleMeta.license_note}</p>

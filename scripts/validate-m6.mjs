@@ -43,6 +43,7 @@ const componentFiles = [
   "src/components/workbench/WorkbenchShell.tsx",
   "src/components/workbench/InputPanel.tsx",
   "src/components/workbench/PreferencePanel.tsx",
+  "src/components/workbench/ProcessGuide.tsx",
   "src/components/workbench/GenerationPanel.tsx",
   "src/components/workbench/QualityPanel.tsx",
   "src/components/workbench/ScriptPreviewPanel.tsx",
@@ -64,18 +65,23 @@ assertContains("src/app/page.tsx", [
 console.log("  ✓ App page delegates to WorkbenchShell");
 
 assertContains("src/components/workbench/WorkbenchShell.tsx", [
-  'fetch("/api/samples/public-domain-novel")',
+  'fetch(`/api/samples/quan-zhi-gao-shou?chapters=${sampleChapterCount}`)',
   'fetch("/api/workspaces")',
-  'fetch("/api/generate"',
+  '"/api/generate/analyzer"',
+  'fetch("/api/generate/assemble"',
+  "fetch(endpoint",
   'fetch("/api/revise"',
   'fetch("/api/validate"',
   'fetch("/api/repair"',
+  "saveAsNewWorkspace",
   "documentToYaml",
   "documentToJson",
   "documentToMarkdown",
   "resultSource",
   "needs_revision",
   "ai_draft",
+  "sampleChapterCount",
+  "ProcessGuide",
   "validation",
   "revising",
   "onReviseByDirections",
@@ -88,23 +94,49 @@ assertContains("src/components/workbench/GenerationPanel.tsx", [
   "needs_revision",
   "结构化草稿",
   "剧本质量不足",
-  "repair",
   "生成",
-  "校验",
-  "导出",
+  "结果来源",
 ]);
 console.log("  ✓ Generation panel exposes run-state language");
 
 assertContains("src/components/workbench/QualityPanel.tsx", [
   "ValidationResult",
   "RepairResult",
-  "自动修复",
+  "检查可自动修复项",
+  /应用\s+\{repairResult\.appliedFixes\.length\}\s+项修复/,
   "错误",
   "警告",
   "needsRevision",
   "不满足目标时长",
 ]);
-console.log("  ✓ Quality panel exposes validation and repair state");
+assert.ok(
+  !read("src/components/workbench/QualityPanel.tsx").includes("resultSourceLabel"),
+  "QualityPanel must not duplicate result source; GenerationPanel owns it",
+);
+console.log("  ✓ Quality panel exposes validation and repair state without duplicate source");
+
+assertContains("src/components/workbench/ProcessGuide.tsx", [
+  "准备章节",
+  "设置目标",
+  "生成草稿",
+  "校验质量",
+  "修复或重试",
+  "导出交付",
+  "已完成",
+  "当前",
+  "待处理",
+  "引用 ID 不存在",
+  "建议重新生成",
+]);
+console.log("  ✓ Process guide exposes current flow and error advice");
+
+assertContains("src/components/workbench/InputPanel.tsx", [
+  "随机载入《全职高手》片段",
+  "连续章节数",
+  "min={3}",
+  "内置测试样本",
+]);
+console.log("  ✓ Input panel exposes Quan Zhi Gao Shou sample controls");
 
 assertContains("src/components/workbench/ScriptPreviewPanel.tsx", [
   "characters",

@@ -32,6 +32,7 @@ import { AdaptationReportPanel } from "./AdaptationReportPanel";
 import { GenerationPanel, type GenerationStagePreview } from "./GenerationPanel";
 import { InputPanel } from "./InputPanel";
 import { PreferencePanel } from "./PreferencePanel";
+import { ProcessGuide } from "./ProcessGuide";
 import { QualityPanel } from "./QualityPanel";
 import { ScriptPreviewPanel } from "./ScriptPreviewPanel";
 import { WorkspaceList, type WorkspaceIndexEntry } from "./WorkspaceList";
@@ -59,6 +60,12 @@ type SampleResponse = {
   chapterText: string;
   normalization: InputNormalizationResult;
   request: GenerationRequest;
+  selection?: {
+    requestedCount: number;
+    chapterCount: number;
+    startTitle: string;
+    endTitle: string;
+  };
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -128,6 +135,7 @@ export function WorkbenchShell() {
   const [resultText, setResultText] = useState(EMPTY_RESULT_TEXT);
   const [resultSource, setResultSource] = useState<ResultSource>("none");
   const [sampleMeta, setSampleMeta] = useState<Pick<SampleResponse, "title" | "author" | "source" | "license_note"> | null>(null);
+  const [sampleChapterCount, setSampleChapterCount] = useState(3);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [message, setMessage] = useState("准备输入");
   const [generateState, setGenerateState] = useState<GenerateState>("idle");
@@ -224,10 +232,15 @@ export function WorkbenchShell() {
     void fetchWorkspaceList().then((entries) => setWorkspaces(entries));
   }, []);
 
-  async function loadPublicDomainSample() {
-    setMessage("正在载入样本");
-    const response = await fetch("/api/samples/public-domain-novel");
+  async function loadQuanZhiGaoShouSample() {
+    setMessage("正在载入《全职高手》内置测试样本");
+    const response = await fetch(`/api/samples/quan-zhi-gao-shou?chapters=${sampleChapterCount}`);
     const sample = (await response.json()) as SampleResponse;
+    if (!response.ok) {
+      setMessage((sample as { error?: string }).error ?? "样本载入失败");
+      return;
+    }
+
     setRawInput(sample.chapterText);
     setTitle(sample.title);
     setFormat(sample.request.target.format);
@@ -244,12 +257,15 @@ export function WorkbenchShell() {
     setGenerationStagePreviews([]);
     setGenerationError("");
     setHasUnsavedState(true);
-    setMessage(`已载入 ${sample.normalization.chapters.length} 章公开来源样本`);
+    const selectionText = sample.selection
+      ? `：${sample.selection.startTitle} 至 ${sample.selection.endTitle}`
+      : "";
+    setMessage(`已载入 ${sample.normalization.chapters.length} 章《全职高手》测试样本${selectionText}`);
   }
 
-  async function saveWorkspace() {
+  async function saveAsNewWorkspace() {
     setSaveState("saving");
-    setMessage("正在保存工作区");
+    setMessage("正在另存为新工作区");
     const state = buildWorkspaceState();
     const response = await fetch("/api/workspaces", {
       method: "POST",
@@ -269,7 +285,7 @@ export function WorkbenchShell() {
     await refreshWorkspaces();
     setSaveState("saved");
     setHasUnsavedState(false);
-    setMessage(`已保存 ${workspace.id}`);
+    setMessage(`已另存为新工作区 ${workspace.id}`);
   }
 
   async function loadWorkspace(id: string) {
@@ -289,11 +305,12 @@ export function WorkbenchShell() {
 
   async function saveCurrentWorkspaceState(overrides: Partial<WorkspaceState> = {}) {
     if (!activeWorkspace) {
-      setMessage("请先保存或加载工作区，再保存当前状态");
+      setMessage("请先另存为新工作区或加载已有工作区，再保存当前工作区");
       return;
     }
 
     setSaveState("saving");
+    setMessage("正在保存当前工作区");
     const state = buildWorkspaceState(overrides);
     const response = await fetch(`/api/workspaces/${encodeURIComponent(activeWorkspace.id)}`, {
       method: "PUT",
@@ -312,7 +329,7 @@ export function WorkbenchShell() {
     setSaveState("saved");
     setHasUnsavedState(false);
     await refreshWorkspaces();
-    setMessage(`当前状态已保存到 ${workspace.id}`);
+    setMessage(`当前工作区已保存到 ${workspace.id}`);
   }
 
   async function generateDraft() {
@@ -497,7 +514,7 @@ export function WorkbenchShell() {
 
     setRepairing(true);
     setRepairResult(null);
-    setMessage("正在执行自动修复");
+    setMessage("正在检查可自动修复项");
     try {
       const payload = yamlText.trim() ? { yamlText } : { document: currentDocument };
       const response = await fetch("/api/repair", {
@@ -509,10 +526,12 @@ export function WorkbenchShell() {
       setRepairResult(result);
       setHasUnsavedState(true);
 
-      if (result.status === "ok") {
-        setMessage(`自动修复完成：${result.appliedFixes.length} 项修复已应用`);
+      if (result.appliedFixes.length > 0) {
+        setMessage(`发现 ${result.appliedFixes.length} 项可自动修复内容，请预览后应用`);
+      } else if (result.status === "ok") {
+        setMessage("未发现需要自动应用的修复项");
       } else if (result.status === "partial") {
-        setMessage(`部分修复：${result.appliedFixes.length} 项修复已应用`);
+        setMessage(`部分问题无法自动修复：${result.diagnostics.length} 条需要手动处理`);
       } else {
         setMessage(`自动修复失败：${result.diagnostics.length} 条无法自动修复的错误`);
       }
@@ -594,16 +613,32 @@ export function WorkbenchShell() {
     }
   }
 
-  function handleApplyRepair() {
-    if (!repairResult?.document) return;
+  async function handleApplyRepair() {
+    if (!repairResult?.document || repairResult.appliedFixes.length === 0) return;
 
+    const repairedYaml = repairResult.yamlText ?? documentToYaml(repairResult.document);
     setResultText(jsonPreview(repairResult.document));
-    setYamlText(repairResult.yamlText ?? documentToYaml(repairResult.document));
-    setYamlValidation(null);
-    setResultSource("repair");
+    setYamlText(repairedYaml);
     setRepairResult(null);
     setHasUnsavedState(true);
-    setMessage("修复结果已应用，建议重新校验 YAML");
+    setMessage("修复结果已应用，正在重新校验 YAML");
+
+    try {
+      const response = await fetch("/api/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ yamlText: repairedYaml }),
+      });
+      const validation = (await response.json()) as ValidationResult;
+      setYamlValidation(validation);
+      if (validation.valid) {
+        setMessage("修复结果已应用，YAML 校验通过");
+      } else {
+        setMessage(`修复结果已应用，仍有 ${validation.errors.length} 条错误需要处理`);
+      }
+    } catch {
+      setMessage("修复结果已应用，但重新校验请求失败");
+    }
   }
 
   function handleDownload(formatName: "yaml" | "json" | "markdown") {
@@ -675,16 +710,24 @@ export function WorkbenchShell() {
               <p className="text-sm font-medium text-cyan-700">ScriptForge M6</p>
               <h1 className="mt-1 text-3xl font-semibold text-zinc-950">作者工作台</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
-                载入章节、调整偏好、生成剧本、查看质量状态、理解来源追踪与改编报告，并导出可继续打磨的 YAML。
+                从连续小说章节出发，先确定改编目标，再生成结构化剧本草稿；生成后按校验、修复或重试、导出的顺序推进。
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
+                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50 disabled:border-zinc-200 disabled:text-zinc-400"
+                  disabled={!normalization.isValid || saveState === "saving"}
+                  onClick={() => void saveAsNewWorkspace()}
+                  type="button"
+                >
+                  {saveState === "saving" ? "保存中..." : "另存为新工作区"}
+                </button>
+                <button
                   className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:bg-zinc-300"
-                  disabled={!activeWorkspace || saveState === "saving"}
+                  disabled={!activeWorkspace || !normalization.isValid || saveState === "saving"}
                   onClick={() => void saveCurrentWorkspaceState()}
                   type="button"
                 >
-                  {saveState === "saving" ? "保存中..." : "保存当前状态"}
+                  {saveState === "saving" ? "保存中..." : "保存当前工作区"}
                 </button>
                 <span className={hasUnsavedState ? "text-sm font-medium text-amber-700" : "text-sm text-emerald-700"}>
                   {activeWorkspace ? (hasUnsavedState ? "有未保存状态" : "状态已保存") : "未保存工作区"}
@@ -698,6 +741,17 @@ export function WorkbenchShell() {
             </div>
           </div>
         </header>
+
+        <ProcessGuide
+          inputReady={normalization.isValid}
+          hasTarget={Boolean(title.trim() && genre.trim() && tone.trim() && duration > 0)}
+          generateState={generateState}
+          validation={yamlValidation}
+          hasDocument={currentDocument !== null}
+          exportBlocked={yamlExportBlocked}
+          generationError={generationError}
+          diagnostics={generationDiagnostics}
+        />
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-5">
@@ -733,14 +787,13 @@ export function WorkbenchShell() {
               rawInput={rawInput}
               normalization={normalization}
               sampleMeta={sampleMeta}
-              saveDisabled={!normalization.isValid || saveState === "saving"}
-              saving={saveState === "saving"}
+              sampleChapterCount={sampleChapterCount}
               onRawInputChange={(value) => {
                 setRawInput(value);
                 setHasUnsavedState(true);
               }}
-              onLoadSample={() => void loadPublicDomainSample()}
-              onSaveWorkspace={() => void saveWorkspace()}
+              onSampleChapterCountChange={(value) => setSampleChapterCount(Number.isFinite(value) ? Math.max(3, value) : 3)}
+              onLoadSample={() => void loadQuanZhiGaoShouSample()}
             />
 
             <GenerationPanel
@@ -759,11 +812,10 @@ export function WorkbenchShell() {
               validation={yamlValidation}
               repairResult={repairResult}
               repairing={repairing}
-              resultSource={resultSource}
               needsRevision={generateState === "needs_revision"}
               exportBlocked={yamlExportBlocked}
               onRepair={() => void handleAutoRepair()}
-              onApplyRepair={handleApplyRepair}
+              onApplyRepair={() => void handleApplyRepair()}
             />
 
             <ScriptPreviewPanel document={currentDocument} validation={yamlValidation} />
