@@ -18,6 +18,7 @@ const bannedSourcePatterns = [
 ];
 const sourceFiles = [
   "src/app/page.tsx",
+  "src/components/workbench/WorkbenchShell.tsx",
   "src/lib/input.ts",
   "src/lib/sample-input.ts",
   "src/lib/workspace-data.ts",
@@ -159,10 +160,13 @@ async function runStaticChecks() {
   assert(workspaceDataSource.includes("saveWorkspaceResult"), "workspace storage must save reloadable results");
   assert(workspaceDataSource.includes("path.relative"), "workspace storage must reject path traversal without prefix false positives");
 
-  const pageSource = sources.find(([relativePath]) => relativePath === "src/app/page.tsx")?.[1] ?? "";
-  assert(pageSource.includes("/api/workspaces"), "workbench must call workspace API");
-  assert(pageSource.includes("/api/samples/public-domain-novel"), "workbench must load source sample through API");
-  assert(pageSource.includes("resultText"), "workbench must accept external result JSON instead of hardcoding one");
+  const workbenchSource = [
+    sources.find(([relativePath]) => relativePath === "src/app/page.tsx")?.[1] ?? "",
+    sources.find(([relativePath]) => relativePath === "src/components/workbench/WorkbenchShell.tsx")?.[1] ?? "",
+  ].join("\n");
+  assert(workbenchSource.includes("/api/workspaces"), "workbench must call workspace API");
+  assert(workbenchSource.includes("/api/samples/public-domain-novel"), "workbench must load source sample through API");
+  assert(workbenchSource.includes("resultText"), "workbench must accept external result JSON instead of hardcoding one");
 }
 
 async function runApiChecks(base) {

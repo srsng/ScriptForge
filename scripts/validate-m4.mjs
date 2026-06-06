@@ -7,6 +7,8 @@ const read = (file) => readFileSync(join(root, file), "utf8");
 
 const route = read("src/app/api/generate/route.ts");
 const page = read("src/app/page.tsx");
+const workbench = read("src/components/workbench/WorkbenchShell.tsx");
+const generationPanel = read("src/components/workbench/GenerationPanel.tsx");
 const client = read("src/lib/generation/client.ts");
 const technicalDesign = read("docs/technical-design.md");
 const fallback = read("src/lib/generation/fallback.ts");
@@ -30,15 +32,17 @@ for (const token of [
 }
 assert.doesNotMatch(route, /dotenv|\.env|SECRET|PRIVATE_KEY|API_KEY/i, "generate route must not read secrets directly");
 
-for (const token of [
-  "AI生成剧本初稿",
-  "generateDraft",
-  "/api/generate",
-  "generationDiagnostics",
-  "setResultText",
-  "setYamlText",
+const workbenchUi = [page, workbench, generationPanel].join("\n");
+
+for (const [label, pattern] of [
+  ["AI生成剧本初稿", /AI\s*生成剧本初稿/],
+  ["generateDraft", /generateDraft/],
+  ["/api/generate", /\/api\/generate/],
+  ["generationDiagnostics", /generationDiagnostics/],
+  ["setResultText", /setResultText/],
+  ["setYamlText", /setYamlText/],
 ]) {
-  assert.match(page, new RegExp(token), `page.tsx missing ${token}`);
+  assert.match(workbenchUi, pattern, `M6 workbench UI missing ${label}`);
 }
 
 for (const token of ["buildGenerationPrompts", "flattenForSingleRequest", "buildCombinedMessages"]) {
@@ -69,8 +73,9 @@ assert.match(route, /body\.request !== undefined[\s\S]*Invalid GenerationRequest
 assert.match(generate, /Number\.isInteger/, "generation request normalization must require integer target duration");
 assert.match(generate, /throw new Error\([^)]*MIN_CHAPTER_COUNT/s, "generation must reject insufficient chapter input instead of returning invalid fallback");
 assert.match(fallback, /request\.chapters\.length < MIN_CHAPTER_COUNT/, "fallback builder must guard its minimum chapter precondition");
-assert.doesNotMatch(page, /\?\s*\{\s*workspaceId:\s*activeWorkspace\.id,\s*persist:\s*true\s*\}/s, "page must not generate from stale workspace-only payload");
-assert.match(page, /const currentGenerationRequest: GenerationRequest = \{[\s\S]*chapters:\s*normalization\.chapters/s, "page must build the generation request from current normalized chapters");
-assert.match(page, /request:\s*currentGenerationRequest/, "page must send the currently edited generation request");
+assert.doesNotMatch(workbench, /\?\s*\{\s*workspaceId:\s*activeWorkspace\.id,\s*persist:\s*true\s*\}/s, "workbench must not generate from stale workspace-only payload");
+assert.match(workbench, /const currentGenerationRequest: GenerationRequest = useMemo\(\(\) => \(\{[\s\S]*chapters:\s*normalization\.chapters/s, "workbench must build the generation request from current normalized chapters");
+assert.match(workbench, /request:\s*currentGenerationRequest/, "workbench must send the currently edited generation request");
+assert.match(page, /WorkbenchShell/, "page.tsx must delegate to the M6 workbench shell");
 
 console.log("validate:m4 ok");
