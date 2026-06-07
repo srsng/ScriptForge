@@ -30,7 +30,7 @@ assert.equal(
 
 for (const token of [
   "export type WorkspaceState",
-  'schema_version: "1.0"',
+  'schema_version: "1.1"',
   "yamlText",
   "yamlValidation",
   "repairResult",
@@ -94,7 +94,8 @@ for (const token of [
   "applyWorkspaceState",
   "saveCurrentWorkspaceState",
   "hasUnsavedState",
-  "保存当前状态",
+  "保存当前工作区",
+  "另存为新工作区",
 ]) {
   assert.match(shell, new RegExp(token), `WorkbenchShell must wire full state persistence token: ${token}`);
 }

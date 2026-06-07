@@ -12,6 +12,28 @@ export type CharacterRole =
 
 export type BeatType = "action" | "dialogue" | "narration" | "transition" | "note";
 
+export type SourceFactType =
+  | "event"
+  | "character_goal"
+  | "relationship"
+  | "object"
+  | "location"
+  | "information"
+  | "emotion"
+  | "conflict";
+
+export type BeatFunction =
+  | "establish"
+  | "probe"
+  | "evade"
+  | "pressure"
+  | "reveal"
+  | "turn"
+  | "reaction"
+  | "pause"
+  | "transition"
+  | "note";
+
 export type NovelChapter = {
   id: string;
   title: string;
@@ -69,6 +91,13 @@ export type ScriptSourceChapter = {
   id: string;
   title: string;
   summary: string;
+  key_facts: ScriptSourceFact[];
+};
+
+export type ScriptSourceFact = {
+  id: string;
+  type: SourceFactType;
+  content: string;
 };
 
 export type ScriptSource = {
@@ -104,21 +133,36 @@ export type ScriptBeat =
   | {
       type: "dialogue";
       character: string;
+      function: BeatFunction;
+      source_refs: string[];
       content: string;
     }
   | {
       type: Exclude<BeatType, "dialogue">;
       character?: string;
+      function: BeatFunction;
+      source_refs: string[];
       content: string;
     };
+
+export type ScriptSceneCard = {
+  objective: string;
+  opposition: string;
+  entry_state: string;
+  turning_point: string;
+  exit_state: string;
+  visual_atmosphere: string;
+};
 
 export type ScriptScene = {
   id: string;
   title: string;
   source_chapters: string[];
+  source_refs: string[];
   location: string;
   time: string;
   characters: string[];
+  scene_card: ScriptSceneCard;
   dramatic_purpose: string;
   conflict: string;
   beats: ScriptBeat[];
@@ -135,7 +179,7 @@ export type AdaptationReport = {
 };
 
 export type ScriptForgeScript = {
-  schema_version: "1.0";
+  schema_version: "1.1";
   title: string;
   metadata: ScriptMetadata;
   source: ScriptSource;
@@ -149,16 +193,17 @@ export type ScriptForgeDocument = {
   script: ScriptForgeScript;
 };
 
-export type WorkspaceResultSource = "none" | "ai" | "fallback" | "repair" | "manual";
+export type WorkspaceResultSource = "none" | "ai" | "ai_draft" | "repair" | "manual";
 
 export type WorkspaceState = {
-  schema_version: "1.0";
+  schema_version: "1.1";
   title: string;
   rawText: string;
   request: GenerationRequest;
   result: ScriptForgeDocument | null;
   resultSource: WorkspaceResultSource;
   yamlText: string;
+  lastAppliedYamlText?: string;
   yamlValidation: unknown | null;
   repairResult: unknown | null;
   generationDiagnostics: unknown[];

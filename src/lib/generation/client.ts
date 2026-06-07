@@ -8,8 +8,13 @@ export type ModelClientResult = {
 } | {
   ok: false;
   model?: string;
+  provider?: "main" | "backup";
   message: string;
   status?: number;
+};
+
+export type ModelRequestOptions = {
+  timeoutMs?: number;
 };
 
 type ProviderName = "main" | "backup";
@@ -160,7 +165,15 @@ function parsePotentialEventStreamBody(text: string): unknown {
   return lastJsonChunk ? JSON.parse(lastJsonChunk) : null;
 }
 
-async function requestViaRawFetch(provider: ProviderConfig, messages: PromptMessage[]): Promise<ModelClientResult> {
+async function requestViaRawFetch(
+  provider: ProviderConfig,
+  messages: PromptMessage[],
+  options: ModelRequestOptions = {},
+): Promise<ModelClientResult> {
+  const requestedTimeoutMs = options.timeoutMs;
+  const timeoutMs = typeof requestedTimeoutMs === "number" && Number.isInteger(requestedTimeoutMs) && requestedTimeoutMs > 0
+    ? requestedTimeoutMs
+    : DEFAULT_TIMEOUT_MS;
   const response = await fetch(`${provider.baseURL}/chat/completions`, {
     method: "POST",
     headers: {
@@ -168,13 +181,14 @@ async function requestViaRawFetch(provider: ProviderConfig, messages: PromptMess
       "Content-Type": "application/json",
     },
     body: JSON.stringify(buildChatCompletionRequest(provider, messages)),
-    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const text = await response.text();
   if (!response.ok) {
     return {
       ok: false,
       model: provider.model,
+      provider: provider.name,
       status: response.status,
       message: `${provider.name} AI HTTP ${response.status}：${text.slice(0, 500)}`,
     };
@@ -183,37 +197,50 @@ async function requestViaRawFetch(provider: ProviderConfig, messages: PromptMess
   const parsed = parsePotentialEventStreamBody(text);
   const content = extractContentFromChatCompletion(parsed);
   if (!content || content.trim().length === 0) {
-    return { ok: false, model: provider.model, message: `${provider.name} AI 兼容请求没有可解析的 message.content。` };
+    return { ok: false, model: provider.model, provider: provider.name, message: `${provider.name} AI 兼容请求没有可解析的 message.content。` };
   }
   return { ok: true, model: provider.model, provider: provider.name, content };
 }
 
-async function requestFromProvider(provider: ProviderConfig, messages: PromptMessage[]): Promise<ModelClientResult> {
+async function requestFromProvider(
+  provider: ProviderConfig,
+  messages: PromptMessage[],
+  options: ModelRequestOptions = {},
+): Promise<ModelClientResult> {
   try {
-    return await requestViaRawFetch(provider, messages);
+    return await requestViaRawFetch(provider, messages, options);
   } catch (error) {
     return {
       ok: false,
       model: provider.model,
+      provider: provider.name,
       status: statusFromError(error),
       message: `${provider.name} AI 兼容请求异常：${messageFromError(error)}`,
     };
   }
 }
 
-export async function requestJsonFromModel(messages: PromptMessage[]): Promise<ModelClientResult> {
+export async function requestJsonFromModel(
+  messages: PromptMessage[],
+  options: ModelRequestOptions = {},
+): Promise<ModelClientResult> {
   const providers = getConfiguredProviders();
+  console.log("current providers:");
+  providers.forEach(provider => {
+    console.log("\tbase:", provider.baseURL, "\n\tmodel:", provider.model);
+  });
   if (providers.length === 0) {
     return {
       ok: false,
       model: DEFAULT_MODEL,
-      message: "未配置 OPENAI_API_KEY 或 BACKUP_OPENAI_API_KEY，跳过 AI 调用并启用降级生成。",
+      provider: undefined,
+      message: "未配置 OPENAI_API_KEY 或 BACKUP_OPENAI_API_KEY，无法执行 AI 生成。",
     };
   }
 
   const failures: ModelClientResult[] = [];
   for (const provider of providers) {
-    const result = await requestFromProvider(provider, messages);
+    const result = await requestFromProvider(provider, messages, options);
     if (result.ok) return result;
     failures.push(result);
   }
@@ -222,6 +249,7 @@ export async function requestJsonFromModel(messages: PromptMessage[]): Promise<M
   return {
     ok: false,
     model: lastFailure?.model || configuredModel(),
+    provider: lastFailure?.ok === false ? lastFailure.provider : undefined,
     status: lastFailure?.ok === false ? lastFailure.status : undefined,
     message: failures.map((failure) => failure.ok ? "" : failure.message).filter(Boolean).join("；"),
   };

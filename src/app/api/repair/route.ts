@@ -49,7 +49,7 @@ function normalizeRepairDocumentInput(input: unknown): unknown {
     return candidate;
   }
 
-  if (candidate.schema_version === "1.0") {
+  if (candidate.schema_version === "1.1") {
     return { script: candidate };
   }
 

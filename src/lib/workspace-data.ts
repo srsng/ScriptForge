@@ -96,7 +96,7 @@ function createWorkspaceId(now = new Date()): string {
 }
 
 function normalizeResultSource(value: unknown): WorkspaceResultSource {
-  return value === "ai" || value === "fallback" || value === "repair" || value === "manual" || value === "none"
+  return value === "ai" || value === "ai_draft" || value === "repair" || value === "manual" || value === "none"
     ? value
     : "none";
 }
@@ -110,7 +110,7 @@ function validateScriptForgeDocument(value: unknown): ScriptForgeDocument | null
 
   if (
     typeof script.title !== "string" ||
-    script.schema_version !== "1.0" ||
+    script.schema_version !== "1.1" ||
     !Array.isArray(script.characters) ||
     !Array.isArray(script.locations) ||
     !Array.isArray(script.scenes)
@@ -142,13 +142,14 @@ function normalizeWorkspaceState(input: unknown, now = new Date().toISOString())
   if (candidate.result !== null && candidate.result !== undefined && !result) return null;
 
   return {
-    schema_version: "1.0",
+    schema_version: "1.1",
     title: typeof candidate.title === "string" && candidate.title.trim() ? candidate.title.trim() : request.chapters[0]?.title ?? "Untitled workspace",
     rawText,
     request,
     result,
     resultSource: normalizeResultSource(candidate.resultSource),
     yamlText: typeof candidate.yamlText === "string" ? candidate.yamlText : "",
+    lastAppliedYamlText: typeof candidate.lastAppliedYamlText === "string" ? candidate.lastAppliedYamlText : typeof candidate.yamlText === "string" ? candidate.yamlText : "",
     yamlValidation: candidate.yamlValidation ?? null,
     repairResult: candidate.repairResult ?? null,
     generationDiagnostics: Array.isArray(candidate.generationDiagnostics) ? candidate.generationDiagnostics : [],

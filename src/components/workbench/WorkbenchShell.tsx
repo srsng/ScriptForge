@@ -9,10 +9,19 @@ import {
   generateJsonFilename,
   generateMarkdownFilename,
   generateYamlFilename,
+  yamlToDocument,
 } from "@/lib/yaml";
 import type { ValidationResult } from "@/lib/schema";
 import type { RepairResult } from "@/lib/repair";
-import type { GenerationDiagnostic } from "@/lib/generation/types";
+import type {
+  AnalyzerStageOutput,
+  GenerationDiagnostic,
+  GenerationStageMetrics,
+  PlannerStageOutput,
+  PromptBundle,
+  ReporterStageOutput,
+  ScreenwriterStageOutput,
+} from "@/lib/generation/types";
 import type {
   GenerationRequest,
   InputNormalizationResult,
@@ -21,9 +30,10 @@ import type {
   WorkspaceState,
 } from "@/types/scriptforge";
 import { AdaptationReportPanel } from "./AdaptationReportPanel";
-import { GenerationPanel } from "./GenerationPanel";
+import { GenerationPanel, type GenerationStagePreview } from "./GenerationPanel";
 import { InputPanel } from "./InputPanel";
 import { PreferencePanel } from "./PreferencePanel";
+import { ProcessGuide } from "./ProcessGuide";
 import { QualityPanel } from "./QualityPanel";
 import { ScriptPreviewPanel } from "./ScriptPreviewPanel";
 import { WorkspaceList, type WorkspaceIndexEntry } from "./WorkspaceList";
@@ -51,23 +61,68 @@ type SampleResponse = {
   chapterText: string;
   normalization: InputNormalizationResult;
   request: GenerationRequest;
+  selection?: {
+    requestedCount: number;
+    chapterCount: number;
+    startTitle: string;
+    endTitle: string;
+  };
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
-type GenerateState = "idle" | "loading" | "done" | "error";
+type GenerateState = "idle" | "loading" | "success" | "needs_revision" | "error";
 
 type GenerateResponse = {
   document?: ScriptForgeDocument;
   scriptYaml?: string;
   validation?: ValidationResult;
   diagnostics?: GenerationDiagnostic[];
-  usedFallback?: boolean;
+  resultSource?: ResultSource;
   workspaceId?: string;
-  status?: string;
+  status?: "ai_success" | "degraded" | "needs_revision" | "error";
+  error?: string;
+};
+
+type StageApiResponse<T> = {
+  status: "ok" | "error";
+  output?: T;
+  diagnostics?: GenerationDiagnostic[];
+  metrics?: GenerationStageMetrics;
+  prompt?: PromptBundle;
+  model?: string;
   error?: string;
 };
 
 const EMPTY_RESULT_TEXT = "";
+const STAGE_LABELS: Record<GenerationStagePreview["stage"], string> = {
+  analyzer: "Analyzer",
+  planner: "Planner",
+  screenwriter: "Screenwriter",
+  reporter: "Reporter",
+};
+
+function previewJson(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+function stageSummary(stage: GenerationStagePreview["stage"], output: unknown): string {
+  if (stage === "analyzer") {
+    const analyzer = output as AnalyzerStageOutput;
+    const factCount = analyzer.source.chapters.reduce((sum, chapter) => sum + chapter.key_facts.length, 0);
+    return `${analyzer.source.chapters.length} 章，${factCount} 条 facts`;
+  }
+  if (stage === "planner") {
+    const planner = output as PlannerStageOutput;
+    return `${planner.characters.length} 人物，${planner.locations.length} 地点，${planner.scene_plan.length} 场面卡`;
+  }
+  if (stage === "screenwriter") {
+    const screenwriter = output as ScreenwriterStageOutput;
+    const beatCount = screenwriter.scenes.reduce((sum, scene) => sum + scene.beats.length, 0);
+    return `${screenwriter.scenes.length} 场，${beatCount} beats`;
+  }
+  const reporter = output as ReporterStageOutput;
+  return `${reporter.title || "未命名"}，${reporter.adaptation_report.revision_suggestions.length} 条后续改进`;
+}
 
 export function WorkbenchShell() {
   const [rawInput, setRawInput] = useState("");
@@ -75,22 +130,28 @@ export function WorkbenchShell() {
   const [format, setFormat] = useState<ScriptFormat>("short_drama");
   const [genre, setGenre] = useState("未指定");
   const [tone, setTone] = useState("未指定");
-  const [duration, setDuration] = useState(12);
+  const [duration, setDuration] = useState(11);
   const [workspaces, setWorkspaces] = useState<WorkspaceIndexEntry[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceRecord | null>(null);
   const [resultText, setResultText] = useState(EMPTY_RESULT_TEXT);
   const [resultSource, setResultSource] = useState<ResultSource>("none");
   const [sampleMeta, setSampleMeta] = useState<Pick<SampleResponse, "title" | "author" | "source" | "license_note"> | null>(null);
+  const [sampleChapterCount, setSampleChapterCount] = useState(3);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [message, setMessage] = useState("准备输入");
   const [generateState, setGenerateState] = useState<GenerateState>("idle");
+  const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null);
+  const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
   const [generationDiagnostics, setGenerationDiagnostics] = useState<GenerationDiagnostic[]>([]);
+  const [generationStagePreviews, setGenerationStagePreviews] = useState<GenerationStagePreview[]>([]);
   const [generationError, setGenerationError] = useState("");
   const [yamlText, setYamlText] = useState("");
+  const [lastAppliedYamlText, setLastAppliedYamlText] = useState("");
   const [yamlValidation, setYamlValidation] = useState<ValidationResult | null>(null);
   const [yamlValidating, setYamlValidating] = useState(false);
   const [repairResult, setRepairResult] = useState<RepairResult | null>(null);
   const [repairing, setRepairing] = useState(false);
+  const [revising, setRevising] = useState(false);
   const [hasUnsavedState, setHasUnsavedState] = useState(false);
 
   const normalization = useMemo(() => normalizeRawNovelInput(rawInput), [rawInput]);
@@ -106,17 +167,67 @@ export function WorkbenchShell() {
   }), [duration, format, genre, normalization.chapters, tone]);
   const canGenerate = normalization.isValid && generateState !== "loading";
   const canExport = currentDocument !== null;
-  const yamlExportBlocked = yamlValidation !== null && !yamlValidation.valid;
+  const yamlHasDraftChanges = yamlText !== lastAppliedYamlText;
+  const yamlHasValidationErrors = yamlValidation !== null && !yamlValidation.valid;
+  const yamlExportBlocked = yamlHasDraftChanges || yamlHasValidationErrors;
+  const yamlExportBlockedReason = yamlHasDraftChanges
+    ? "YAML 有未应用草稿，请先应用到 JSON 或重置"
+    : yamlHasValidationErrors
+      ? "YAML 校验未通过，请先修复错误"
+      : "";
+  const canApplyYaml = yamlText.trim().length > 0 && !yamlValidating;
+  const canResetYaml = lastAppliedYamlText.length > 0 && yamlHasDraftChanges;
+  const displayMessage = generateState === "loading" ? `生成中...(${generationElapsedSeconds}s)` : message;
+
+  useEffect(() => {
+    if (generateState !== "loading" || generationStartedAt === null) return;
+
+    const updateElapsedSeconds = () => {
+      setGenerationElapsedSeconds(Math.max(0, Math.floor((Date.now() - generationStartedAt) / 1000)));
+    };
+
+    updateElapsedSeconds();
+    const timerId = window.setInterval(updateElapsedSeconds, 1000);
+    return () => window.clearInterval(timerId);
+  }, [generateState, generationStartedAt]);
+
+  function summarizeValidationIssues(result: ValidationResult): string {
+    const issues = result.errors.length ? result.errors : result.warnings;
+    return issues
+      .slice(0, 3)
+      .map((issue) => `${issue.path || "root"}: ${issue.message}`)
+      .join("；");
+  }
+
+  async function requestYamlValidation(): Promise<ValidationResult> {
+    const response = await fetch("/api/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ yamlText }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => null) as { error?: string } | null;
+      throw new Error(data?.error ?? "YAML 校验请求失败");
+    }
+    return (await response.json()) as ValidationResult;
+  }
+
+  function messageForValidationResult(result: ValidationResult): string {
+    if (result.valid && result.status === "pass") return "YAML 校验通过，可以应用或导出";
+    if (result.valid) return `YAML 校验通过但存在 ${result.warnings.length} 条警告：${summarizeValidationIssues(result)}`;
+    return `YAML 校验失败：${summarizeValidationIssues(result) || `${result.errors.length} 条错误`}`;
+  }
 
   function buildWorkspaceState(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
     return {
-      schema_version: "1.0",
+      schema_version: "1.1",
       title,
       rawText: rawInput,
       request: currentGenerationRequest,
       result: currentDocument,
       resultSource,
       yamlText,
+      lastAppliedYamlText,
       yamlValidation,
       repairResult,
       generationDiagnostics,
@@ -135,10 +246,13 @@ export function WorkbenchShell() {
     setTone(state.request.target.tone);
     setDuration(state.request.target.target_duration_minutes);
     setResultText(state.result ? jsonPreview(state.result) : EMPTY_RESULT_TEXT);
-    setYamlText(state.yamlText || (state.result ? documentToYaml(state.result) : ""));
+    const restoredYamlText = state.yamlText || (state.result ? documentToYaml(state.result) : "");
+    setYamlText(restoredYamlText);
+    setLastAppliedYamlText(state.lastAppliedYamlText ?? restoredYamlText);
     setYamlValidation(state.yamlValidation as ValidationResult | null);
     setRepairResult(state.repairResult as RepairResult | null);
     setGenerationDiagnostics(state.generationDiagnostics as GenerationDiagnostic[]);
+    setGenerationStagePreviews([]);
     setGenerationError(state.generationError);
     setResultSource(state.resultSource);
     setMessage(state.message || "已恢复工作区");
@@ -159,10 +273,15 @@ export function WorkbenchShell() {
     void fetchWorkspaceList().then((entries) => setWorkspaces(entries));
   }, []);
 
-  async function loadPublicDomainSample() {
-    setMessage("正在载入样本");
-    const response = await fetch("/api/samples/public-domain-novel");
+  async function loadQuanZhiGaoShouSample() {
+    setMessage("正在载入《全职高手》内置测试样本");
+    const response = await fetch(`/api/samples/quan-zhi-gao-shou?chapters=${sampleChapterCount}`);
     const sample = (await response.json()) as SampleResponse;
+    if (!response.ok) {
+      setMessage((sample as { error?: string }).error ?? "样本载入失败");
+      return;
+    }
+
     setRawInput(sample.chapterText);
     setTitle(sample.title);
     setFormat(sample.request.target.format);
@@ -175,13 +294,19 @@ export function WorkbenchShell() {
     setYamlValidation(null);
     setRepairResult(null);
     setResultSource("none");
+    setGenerationDiagnostics([]);
+    setGenerationStagePreviews([]);
+    setGenerationError("");
     setHasUnsavedState(true);
-    setMessage(`已载入 ${sample.normalization.chapters.length} 章公开来源样本`);
+    const selectionText = sample.selection
+      ? `：${sample.selection.startTitle} 至 ${sample.selection.endTitle}`
+      : "";
+    setMessage(`已载入 ${sample.normalization.chapters.length} 章《全职高手》测试样本${selectionText}`);
   }
 
-  async function saveWorkspace() {
+  async function saveAsNewWorkspace() {
     setSaveState("saving");
-    setMessage("正在保存工作区");
+    setMessage("正在另存为新工作区");
     const state = buildWorkspaceState();
     const response = await fetch("/api/workspaces", {
       method: "POST",
@@ -201,7 +326,7 @@ export function WorkbenchShell() {
     await refreshWorkspaces();
     setSaveState("saved");
     setHasUnsavedState(false);
-    setMessage(`已保存 ${workspace.id}`);
+    setMessage(`已另存为新工作区 ${workspace.id}`);
   }
 
   async function loadWorkspace(id: string) {
@@ -221,11 +346,12 @@ export function WorkbenchShell() {
 
   async function saveCurrentWorkspaceState(overrides: Partial<WorkspaceState> = {}) {
     if (!activeWorkspace) {
-      setMessage("请先保存或加载工作区，再保存当前状态");
+      setMessage("请先另存为新工作区或加载已有工作区，再保存当前工作区");
       return;
     }
 
     setSaveState("saving");
+    setMessage("正在保存当前工作区");
     const state = buildWorkspaceState(overrides);
     const response = await fetch(`/api/workspaces/${encodeURIComponent(activeWorkspace.id)}`, {
       method: "PUT",
@@ -244,68 +370,140 @@ export function WorkbenchShell() {
     setSaveState("saved");
     setHasUnsavedState(false);
     await refreshWorkspaces();
-    setMessage(`当前状态已保存到 ${workspace.id}`);
+    setMessage(`当前工作区已保存到 ${workspace.id}`);
   }
 
   async function generateDraft() {
+    setGenerationStartedAt(Date.now());
+    setGenerationElapsedSeconds(0);
     setGenerateState("loading");
     setGenerationError("");
     setGenerationDiagnostics([]);
+    setGenerationStagePreviews([]);
+    setResultText(EMPTY_RESULT_TEXT);
+    setYamlText("");
+    setYamlValidation(null);
     setRepairResult(null);
     setMessage("正在生成剧本初稿");
 
-    const payload = {
+    const basePayload = {
       request: currentGenerationRequest,
       workspaceId: activeWorkspace?.id,
     };
+    const diagnostics: GenerationDiagnostic[] = [];
+    const promptStages: PromptBundle[] = [];
+    let model: string | undefined;
 
-    try {
-      const response = await fetch("/api/generate", {
+    async function runStageRequest<T>(
+      stage: GenerationStagePreview["stage"],
+      endpoint: string,
+      body: Record<string, unknown>,
+    ): Promise<T> {
+      setMessage(`正在执行 ${STAGE_LABELS[stage]} 阶段`);
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
+      });
+      const data = (await response.json()) as StageApiResponse<T>;
+      diagnostics.push(...(data.diagnostics ?? []));
+      setGenerationDiagnostics([...diagnostics]);
+      if (!response.ok || data.status === "error" || !data.output) {
+        throw new Error(data.error ?? `${STAGE_LABELS[stage]} 阶段失败`);
+      }
+
+      if (data.prompt) promptStages.push(data.prompt);
+      model = data.model ?? model;
+      setGenerationStagePreviews((current) => [
+        ...current.filter((item) => item.stage !== stage),
+        {
+          stage,
+          label: STAGE_LABELS[stage],
+          summary: stageSummary(stage, data.output),
+          json: previewJson(data.output),
+        },
+      ]);
+      setMessage(`${STAGE_LABELS[stage]} 阶段完成`);
+      return data.output;
+    }
+
+    try {
+      const analyzer = await runStageRequest<AnalyzerStageOutput>("analyzer", "/api/generate/analyzer", basePayload);
+      const planner = await runStageRequest<PlannerStageOutput>("planner", "/api/generate/planner", {
+        ...basePayload,
+        analyzer,
+      });
+      const screenwriter = await runStageRequest<ScreenwriterStageOutput>("screenwriter", "/api/generate/screenwriter", {
+        ...basePayload,
+        analyzer,
+        planner,
+      });
+      const reporter = await runStageRequest<ReporterStageOutput>("reporter", "/api/generate/reporter", {
+        ...basePayload,
+        analyzer,
+        planner,
+        screenwriter,
+      });
+
+      setMessage("正在组装并校验剧本");
+      const response = await fetch("/api/generate/assemble", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...basePayload,
+          analyzer,
+          planner,
+          screenwriter,
+          reporter,
+          diagnostics,
+          promptStages,
+          model,
+        }),
       });
       const data = (await response.json()) as GenerateResponse;
 
-      if (!response.ok || !data.document) {
+      if (!response.ok || data.status === "error") {
         throw new Error(data.error ?? "AI 生成失败");
       }
+      if (!data.document) {
+        throw new Error(data.error ?? "AI 没有返回可展示的剧本草稿");
+      }
 
+      const nextYamlText = data.scriptYaml ?? documentToYaml(data.document);
       setResultText(jsonPreview(data.document));
-      setYamlText(data.scriptYaml ?? documentToYaml(data.document));
+      setYamlText(nextYamlText);
+      setLastAppliedYamlText(nextYamlText);
       setYamlValidation(data.validation ?? null);
       setGenerationDiagnostics(data.diagnostics ?? []);
-      setGenerateState("done");
-      setResultSource(data.usedFallback ? "fallback" : "ai");
+      setGenerateState(data.status === "needs_revision" ? "needs_revision" : "success");
+      const source = data.resultSource ?? (data.status === "needs_revision" ? "ai_draft" : "ai");
+      setResultSource(source);
+      const successMessage = data.status === "needs_revision"
+        ? "AI 返回了结构化草稿，但剧本质量不足，不满足目标时长，建议重新生成或手动加强。"
+        : "已生成 AI 剧本初稿";
       if (activeWorkspace) {
-        const source = data.usedFallback ? "fallback" : "ai";
         await saveCurrentWorkspaceState({
           result: data.document,
           resultSource: source,
-          yamlText: data.scriptYaml ?? documentToYaml(data.document),
+          yamlText: nextYamlText,
+          lastAppliedYamlText: nextYamlText,
           yamlValidation: data.validation ?? null,
           generationDiagnostics: data.diagnostics ?? [],
           generationError: "",
-          message: data.usedFallback ? "已生成 fallback 降级剧本初稿" : "已生成 AI 剧本初稿",
+          message: successMessage,
         });
       } else {
         setHasUnsavedState(true);
       }
-      setMessage(data.usedFallback ? "已生成 fallback 降级剧本初稿" : "已生成 AI 剧本初稿");
+      setMessage(successMessage);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       setGenerationError(errorMessage);
       setGenerateState("error");
       setMessage(errorMessage);
+    } finally {
+      setGenerationStartedAt(null);
     }
-  }
-
-  function handleResultTextChange(value: string) {
-    setResultText(value);
-    setYamlValidation(null);
-    setRepairResult(null);
-    setResultSource(value.trim() ? "manual" : "none");
-    setHasUnsavedState(true);
   }
 
   function handleConvertToYaml() {
@@ -314,10 +512,12 @@ export function WorkbenchShell() {
       return;
     }
 
-    setYamlText(documentToYaml(currentDocument));
+    const nextYamlText = documentToYaml(currentDocument);
+    setYamlText(nextYamlText);
+    setLastAppliedYamlText(nextYamlText);
     setYamlValidation(null);
     setHasUnsavedState(true);
-    setMessage("已生成 YAML，可编辑后重新校验或直接导出");
+    setMessage("已从当前 JSON 重新生成 YAML，可编辑后应用回剧本");
   }
 
   async function handleYamlRevalidate() {
@@ -329,27 +529,66 @@ export function WorkbenchShell() {
     setYamlValidating(true);
     setMessage("正在校验 YAML");
     try {
-      const response = await fetch("/api/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ yamlText }),
-      });
-      const result = (await response.json()) as ValidationResult;
+      const result = await requestYamlValidation();
       setYamlValidation(result);
       setHasUnsavedState(true);
-      if (result.valid) {
-        setMessage("YAML 校验通过，可以导出");
-      } else if (result.status === "warn") {
-        setMessage(`YAML 校验通过但存在 ${result.warnings.length} 条警告`);
-      } else {
-        setMessage(`YAML 校验失败：${result.errors.length} 条错误`);
-      }
-    } catch {
-      setMessage("YAML 校验请求失败");
+      setMessage(messageForValidationResult(result));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setMessage(`YAML 校验请求失败：${errorMessage}`);
       setYamlValidation(null);
     } finally {
       setYamlValidating(false);
     }
+  }
+
+  async function handleApplyYamlToJson() {
+    if (!yamlText.trim()) {
+      setMessage("YAML 内容为空，无法应用");
+      return;
+    }
+
+    setYamlValidating(true);
+    setMessage("正在校验并应用 YAML");
+    try {
+      const result = await requestYamlValidation();
+      setYamlValidation(result);
+      if (!result.valid) {
+        setMessage(messageForValidationResult(result));
+        return;
+      }
+
+      const nextDocument = yamlToDocument(yamlText);
+      if (!nextDocument) {
+        setMessage("YAML 结构无法转换为 ScriptForgeDocument：缺少 script 根节点或 schema_version");
+        return;
+      }
+
+      setResultText(jsonPreview(nextDocument));
+      setLastAppliedYamlText(yamlText);
+      setResultSource("manual");
+      setRepairResult(null);
+      setHasUnsavedState(true);
+      setMessage(result.status === "warn" ? messageForValidationResult(result) : "YAML 已应用到页面剧本与 JSON");
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setMessage(`YAML 应用失败：${errorMessage}`);
+      setYamlValidation(null);
+    } finally {
+      setYamlValidating(false);
+    }
+  }
+
+  function handleResetYamlDraft() {
+    if (!lastAppliedYamlText) {
+      setMessage("没有可恢复的上一次已应用 YAML");
+      return;
+    }
+
+    setYamlText(lastAppliedYamlText);
+    setYamlValidation(null);
+    setHasUnsavedState(true);
+    setMessage("已恢复到上一次已应用的 YAML 内容");
   }
 
   async function handleAutoRepair() {
@@ -360,7 +599,7 @@ export function WorkbenchShell() {
 
     setRepairing(true);
     setRepairResult(null);
-    setMessage("正在执行自动修复");
+    setMessage("正在检查可自动修复项");
     try {
       const payload = yamlText.trim() ? { yamlText } : { document: currentDocument };
       const response = await fetch("/api/repair", {
@@ -372,10 +611,12 @@ export function WorkbenchShell() {
       setRepairResult(result);
       setHasUnsavedState(true);
 
-      if (result.status === "ok") {
-        setMessage(`自动修复完成：${result.appliedFixes.length} 项修复已应用`);
+      if (result.appliedFixes.length > 0) {
+        setMessage(`发现 ${result.appliedFixes.length} 项可自动修复内容，请预览后应用`);
+      } else if (result.status === "ok") {
+        setMessage("未发现需要自动应用的修复项");
       } else if (result.status === "partial") {
-        setMessage(`部分修复：${result.appliedFixes.length} 项修复已应用`);
+        setMessage(`部分问题无法自动修复：${result.diagnostics.length} 条需要手动处理`);
       } else {
         setMessage(`自动修复失败：${result.diagnostics.length} 条无法自动修复的错误`);
       }
@@ -387,16 +628,106 @@ export function WorkbenchShell() {
     }
   }
 
-  function handleApplyRepair() {
-    if (!repairResult?.document) return;
+  async function handleReviseByDirections(directions: string[]) {
+    if (!currentDocument) {
+      setMessage("没有可改写内容：请先生成剧本草稿");
+      return;
+    }
+    if (directions.length === 0) {
+      setMessage("缺少后续修改建议，无法改写");
+      return;
+    }
 
+    setRevising(true);
+    setGenerationError("");
+    setMessage("正在按后续修改建议改写");
+
+    try {
+      const response = await fetch("/api/revise", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          request: currentGenerationRequest,
+          document: currentDocument,
+          directions,
+        }),
+      });
+      const data = (await response.json()) as GenerateResponse;
+
+      if (!response.ok || data.status === "error") {
+        throw new Error(data.error ?? "后续修改建议改写失败");
+      }
+      if (!data.document) {
+        throw new Error(data.error ?? "AI 没有返回可展示的改写剧本");
+      }
+
+      const yaml = data.scriptYaml ?? documentToYaml(data.document);
+      const source = data.resultSource ?? (data.status === "needs_revision" ? "ai_draft" : "ai");
+      const nextMessage = data.status === "needs_revision"
+        ? "已按后续修改建议改写，但剧本质量仍需继续加强。"
+        : "已按后续修改建议改写剧本";
+
+      setResultText(jsonPreview(data.document));
+      setYamlText(yaml);
+      setLastAppliedYamlText(yaml);
+      setYamlValidation(data.validation ?? null);
+      setGenerationDiagnostics(data.diagnostics ?? []);
+      setGenerateState(data.status === "needs_revision" ? "needs_revision" : "success");
+      setResultSource(source);
+      setRepairResult(null);
+
+      if (activeWorkspace) {
+        await saveCurrentWorkspaceState({
+          result: data.document,
+          resultSource: source,
+          yamlText: yaml,
+          yamlValidation: data.validation ?? null,
+          generationDiagnostics: data.diagnostics ?? [],
+          generationError: "",
+          message: nextMessage,
+        });
+      } else {
+        setHasUnsavedState(true);
+      }
+      setMessage(nextMessage);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setGenerationError(errorMessage);
+      setMessage(errorMessage);
+    } finally {
+      setRevising(false);
+    }
+  }
+
+  async function handleApplyRepair() {
+    if (!repairResult?.document || repairResult.appliedFixes.length === 0) return;
+
+    const repairedYaml = repairResult.yamlText ?? documentToYaml(repairResult.document);
     setResultText(jsonPreview(repairResult.document));
-    setYamlText(repairResult.yamlText ?? documentToYaml(repairResult.document));
+    setYamlText(repairedYaml);
+    setLastAppliedYamlText(repairedYaml);
     setYamlValidation(null);
     setResultSource("repair");
     setRepairResult(null);
     setHasUnsavedState(true);
-    setMessage("修复结果已应用，建议重新校验 YAML");
+    setMessage("修复结果已应用，正在重新校验 YAML");
+
+    try {
+      const response = await fetch("/api/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ yamlText: repairedYaml }),
+      });
+      const validation = (await response.json()) as ValidationResult;
+      setYamlValidation(validation);
+      if (validation.valid) {
+        setMessage("修复结果已应用，YAML 校验通过");
+      } else {
+        setMessage(`修复结果已应用，仍有 ${validation.errors.length} 条错误需要处理`);
+      }
+    } catch {
+      setMessage("修复结果已应用，但重新校验请求失败");
+    }
   }
 
   function handleDownload(formatName: "yaml" | "json" | "markdown") {
@@ -405,8 +736,8 @@ export function WorkbenchShell() {
       return;
     }
 
-    if (formatName === "yaml" && yamlExportBlocked) {
-      setMessage("导出已阻止：YAML 校验未通过，请先修复错误");
+    if (yamlExportBlocked) {
+      setMessage(`导出已阻止：${yamlExportBlockedReason}`);
       return;
     }
 
@@ -416,7 +747,7 @@ export function WorkbenchShell() {
 
     switch (formatName) {
       case "yaml":
-        content = yamlText || documentToYaml(currentDocument);
+        content = lastAppliedYamlText || documentToYaml(currentDocument);
         filename = generateYamlFilename(currentDocument.script.title);
         mimeType = "application/x-yaml";
         break;
@@ -450,7 +781,12 @@ export function WorkbenchShell() {
       return;
     }
 
-    const yaml = yamlText || documentToYaml(currentDocument);
+    if (yamlExportBlocked) {
+      setMessage(`复制已阻止：${yamlExportBlockedReason}`);
+      return;
+    }
+
+    const yaml = lastAppliedYamlText || documentToYaml(currentDocument);
     try {
       await navigator.clipboard.writeText(yaml);
       setMessage("YAML 已复制到剪贴板");
@@ -468,16 +804,24 @@ export function WorkbenchShell() {
               <p className="text-sm font-medium text-cyan-700">ScriptForge M6</p>
               <h1 className="mt-1 text-3xl font-semibold text-zinc-950">作者工作台</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
-                载入章节、调整偏好、生成剧本、查看质量状态、理解来源追踪与改编报告，并导出可继续打磨的 YAML。
+                从连续小说章节出发，先确定改编目标，再生成结构化剧本草稿；生成后按校验、修复或重试、导出的顺序推进。
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
+                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50 disabled:border-zinc-200 disabled:text-zinc-400"
+                  disabled={!normalization.isValid || saveState === "saving"}
+                  onClick={() => void saveAsNewWorkspace()}
+                  type="button"
+                >
+                  {saveState === "saving" ? "保存中..." : "另存为新工作区"}
+                </button>
+                <button
                   className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:bg-zinc-300"
-                  disabled={!activeWorkspace || saveState === "saving"}
+                  disabled={!activeWorkspace || !normalization.isValid || saveState === "saving"}
                   onClick={() => void saveCurrentWorkspaceState()}
                   type="button"
                 >
-                  {saveState === "saving" ? "保存中..." : "保存当前状态"}
+                  {saveState === "saving" ? "保存中..." : "保存当前工作区"}
                 </button>
                 <span className={hasUnsavedState ? "text-sm font-medium text-amber-700" : "text-sm text-emerald-700"}>
                   {activeWorkspace ? (hasUnsavedState ? "有未保存状态" : "状态已保存") : "未保存工作区"}
@@ -485,12 +829,23 @@ export function WorkbenchShell() {
               </div>
             </div>
             <div className="grid gap-2 text-sm sm:grid-cols-3 lg:w-[34rem]">
-              <StatusTile label="Message" value={message} tone="text-emerald-700" />
+              <StatusTile label="Message" value={displayMessage} tone="text-emerald-700" />
               <StatusTile label="Result" value={resultSourceLabel(resultSource)} />
               <StatusTile label="Validation" value={yamlValidation ? yamlValidation.status : "not checked"} />
             </div>
           </div>
         </header>
+
+        <ProcessGuide
+          inputReady={normalization.isValid}
+          hasTarget={Boolean(title.trim() && genre.trim() && tone.trim() && duration > 0)}
+          generateState={generateState}
+          validation={yamlValidation}
+          hasDocument={currentDocument !== null}
+          exportBlocked={yamlExportBlocked}
+          generationError={generationError}
+          diagnostics={generationDiagnostics}
+        />
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-5">
@@ -526,21 +881,23 @@ export function WorkbenchShell() {
               rawInput={rawInput}
               normalization={normalization}
               sampleMeta={sampleMeta}
-              saveDisabled={!normalization.isValid || saveState === "saving"}
-              saving={saveState === "saving"}
+              sampleChapterCount={sampleChapterCount}
               onRawInputChange={(value) => {
                 setRawInput(value);
                 setHasUnsavedState(true);
               }}
-              onLoadSample={() => void loadPublicDomainSample()}
-              onSaveWorkspace={() => void saveWorkspace()}
+              onSampleChapterCountChange={(value) => setSampleChapterCount(Number.isFinite(value) ? Math.max(3, value) : 3)}
+              onLoadSample={() => void loadQuanZhiGaoShouSample()}
             />
 
             <GenerationPanel
               generateState={generateState}
+              generationElapsedSeconds={generationElapsedSeconds}
               generationError={generationError}
               diagnostics={generationDiagnostics}
+              stagePreviews={generationStagePreviews}
               resultSource={resultSource}
+              targetDurationMinutes={duration}
               canGenerate={canGenerate}
               onGenerate={() => void generateDraft()}
             />
@@ -549,20 +906,29 @@ export function WorkbenchShell() {
               validation={yamlValidation}
               repairResult={repairResult}
               repairing={repairing}
-              resultSource={resultSource}
+              needsRevision={generateState === "needs_revision"}
               exportBlocked={yamlExportBlocked}
+              exportBlockedReason={yamlExportBlockedReason}
               onRepair={() => void handleAutoRepair()}
-              onApplyRepair={handleApplyRepair}
+              onApplyRepair={() => void handleApplyRepair()}
             />
 
-            <ScriptPreviewPanel document={currentDocument} />
-            <AdaptationReportPanel document={currentDocument} />
+            <ScriptPreviewPanel document={currentDocument} validation={yamlValidation} />
+            <AdaptationReportPanel
+              document={currentDocument}
+              revising={revising}
+              validation={yamlValidation}
+              onReviseByDirections={(directions) => void handleReviseByDirections(directions)}
+            />
             <YamlEditorPanel
               yamlText={yamlText}
               validation={yamlValidation}
               validating={yamlValidating}
               canExport={canExport}
+              canApplyYaml={canApplyYaml}
+              canResetYaml={canResetYaml}
               exportBlocked={yamlExportBlocked}
+              exportBlockedReason={yamlExportBlockedReason}
               onYamlChange={(value) => {
                 setYamlText(value);
                 setYamlValidation(null);
@@ -570,24 +936,14 @@ export function WorkbenchShell() {
               }}
               onConvertToYaml={handleConvertToYaml}
               onRevalidate={() => void handleYamlRevalidate()}
+              onApplyYamlToJson={() => void handleApplyYamlToJson()}
+              onResetYamlDraft={handleResetYamlDraft}
               onCopyYaml={() => void handleCopyYaml()}
               onDownload={handleDownload}
             />
           </div>
 
           <aside className="space-y-5">
-            <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-              <h2 className="text-lg font-semibold">结果 JSON</h2>
-              <p className="mt-1 text-sm text-zinc-600">{activeWorkspace ? `当前工作区 ${activeWorkspace.id}` : "可直接生成；保存工作区不是必需步骤"}</p>
-              <textarea
-                className="mt-3 min-h-[360px] w-full resize-y rounded-md border border-zinc-200 bg-white p-3 font-mono text-xs leading-5 outline-none focus:border-cyan-700"
-                onChange={(event) => handleResultTextChange(event.target.value)}
-                placeholder="ScriptForgeDocument JSON。AI 生成、repair 应用或手动粘贴都会驱动右侧预览。"
-                spellCheck={false}
-                value={resultText}
-              />
-            </section>
-
             <WorkspaceList
               workspaces={workspaces}
               onRefresh={() => void refreshWorkspaces()}

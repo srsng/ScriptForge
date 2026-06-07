@@ -67,16 +67,19 @@ export async function POST(request: Request) {
     const resolved = await resolveGenerationRequest(body);
     const result = await generateScriptForgeDocument(resolved.request);
     const workspaceId = resolved.workspaceId ?? (typeof body.workspaceId === "string" ? body.workspaceId : undefined);
+    const resultSource = result.status === "needs_revision" ? "ai_draft" : result.document ? "ai" : "none";
 
     return NextResponse.json({
       document: result.document,
       validation: result.validation,
-      scriptYaml: documentToYaml(result.document),
+      scriptYaml: result.document ? documentToYaml(result.document) : undefined,
       diagnostics: result.diagnostics,
-      usedFallback: result.status === "fallback",
+      stageOutputs: result.stageOutputs,
+      error: result.error,
+      resultSource,
       status: result.status,
       workspaceId,
-    });
+    }, { status: result.status === "error" ? 502 : 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: message }, { status: 400 });
