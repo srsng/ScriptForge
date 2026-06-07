@@ -2,6 +2,21 @@
 
 ScriptForge 是一个面向小说作者、编剧工作室和内容团队的 AI 剧本改编工作台。它把 3 个章节以上的小说文本转成可编辑、可校验、可追溯、可导出的结构化剧本资产，目标不是生成一段一次性的文本，而是把“小说改编成剧本”这件事产品化、流程化、可交付化。
 
+## 演示视频
+
+<iframe
+  src="https://player.bilibili.com/player.html?bvid=BV1biE46MEnJ&page=1"
+  width="100%"
+  height="480"
+  scrolling="no"
+  border="0"
+  frameborder="no"
+  framespacing="0"
+  allowfullscreen="true"
+></iframe>
+
+[Bilibili](https://www.bilibili.com/video/BV1biE46MEnJ/)
+
 ## 产品定位
 
 一句话：ScriptForge 把小说改编拆成“原文事实抽取 -> 戏剧规划 -> 场景与对白撰写 -> 质量校验 -> 导出交付”的结构化工作流。
@@ -69,7 +84,7 @@ OPENAI_MODEL=gpt-4o-mini
 OPENAI_REASONING_EFFORT=high
 ```
 
-可选填写备份通道：
+可选填写后备通道：
 
 ```dotenv
 BACKUP_OPENAI_API_KEY=your_backup_api_key
@@ -83,7 +98,7 @@ BACKUP_OPENAI_REASONING_EFFORT=high
 - `OPENAI_BASE_URL` 不填时默认使用 `https://api.openai.com/v1`。
 - `OPENAI_MODEL` 不填时默认使用 `gpt-4o-mini`。
 - 请求路径使用 OpenAI-compatible `/chat/completions`。
-- `OPENAI_REASONING_EFFORT` 和备份通道的 reasoning effort 支持 `minimal`、`low`、`medium`、`high`、`xhigh`。
+- `OPENAI_REASONING_EFFORT` 和后备通道的 reasoning effort 支持 `minimal`、`low`、`medium`、`high`、`xhigh`。
 - 真实密钥只放在本地 `.env`，不要提交到仓库。
 
 ## 启动
