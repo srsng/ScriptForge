@@ -4,18 +4,8 @@ ScriptForge 是一个面向小说作者、编剧工作室和内容团队的 AI �
 
 ## 演示视频
 
-<iframe
-  src="https://player.bilibili.com/player.html?bvid=BV1biE46MEnJ&page=1"
-  width="100%"
-  height="480"
-  scrolling="no"
-  border="0"
-  frameborder="no"
-  framespacing="0"
-  allowfullscreen="true"
-></iframe>
-
-[Bilibili](https://www.bilibili.com/video/BV1biE46MEnJ/)
+[Bilibili](https://www.bilibili.com/video/BV1biE46MEnJ/) 
+[![Bilibili 演示视频](https://img.shields.io/badge/Bilibili-观看演示视频-00AEEF?logo=bilibili&logoColor=white)](https://www.bilibili.com/video/BV1biE46MEnJ/)
 
 ## 产品定位
 
