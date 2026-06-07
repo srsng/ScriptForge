@@ -634,13 +634,13 @@ export function WorkbenchShell() {
       return;
     }
     if (directions.length === 0) {
-      setMessage("缺少后续修改建议，无法改写");
+      setMessage("缺少改写指令，无法改写");
       return;
     }
 
     setRevising(true);
     setGenerationError("");
-    setMessage("正在按后续修改建议改写");
+    setMessage("正在按改写指令改写");
 
     try {
       const response = await fetch("/api/revise", {
@@ -655,7 +655,7 @@ export function WorkbenchShell() {
       const data = (await response.json()) as GenerateResponse;
 
       if (!response.ok || data.status === "error") {
-        throw new Error(data.error ?? "后续修改建议改写失败");
+        throw new Error(data.error ?? "改写指令执行失败");
       }
       if (!data.document) {
         throw new Error(data.error ?? "AI 没有返回可展示的改写剧本");
@@ -664,8 +664,8 @@ export function WorkbenchShell() {
       const yaml = data.scriptYaml ?? documentToYaml(data.document);
       const source = data.resultSource ?? (data.status === "needs_revision" ? "ai_draft" : "ai");
       const nextMessage = data.status === "needs_revision"
-        ? "已按后续修改建议改写，但剧本质量仍需继续加强。"
-        : "已按后续修改建议改写剧本";
+        ? "已按改写指令改写，但剧本质量仍需继续加强。"
+        : "已按改写指令改写剧本";
 
       setResultText(jsonPreview(data.document));
       setYamlText(yaml);
