@@ -10,7 +10,7 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     return NextResponse.json(
-      { error: "Request body must be valid JSON." },
+      { error: "提交内容格式不正确，请检查后重试。" },
       { status: 400 },
     );
   }

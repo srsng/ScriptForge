@@ -93,26 +93,24 @@ assertContains("src/lib/generation/quality.ts", [
   "ERROR_DURATION_FILL_RATIO",
   "ERROR_DIALOGUE_FILL_RATIO",
   "ERROR_TEXT_FILL_RATIO",
-  "RESULT_ONLY_ACTION",
-  "DRY_DIALOGUE",
-  "POSSIBLE_ARTIFICIAL_SCENE_SPLIT",
-  "LOW_TOTAL_BEATS",
-  "DURATION_TEXT_UNDERFILLED",
-  "SCENE_TEXT_TOO_SHORT",
-  "SCENE_TOO_SHORT",
-  "LOW_DIALOGUE_RATIO",
-  "LOW_DIALOGUE_COUNT",
-  "LOW_DIALOGUE_ROUNDS",
-  "BEAT_TOO_THIN",
-  "SUMMARY_LIKE_BEATS",
-  "DURATION_UNDERFILLED",
-  "FACT_REF_UNDERUSED",
-  "SOURCE_UNDERUSED",
-  "SCENE_NO_TURNING_POINT",
-  "SCENE_STATIC_ARC",
-  "DIALOGUE_NO_EXCHANGE",
-  "BEAT_FUNCTION_MISSING_ARC",
-  "场景数仅供参考",
+  "篇幅不足",
+  "场景篇幅偏短",
+  "对白偏少",
+  "对白篇幅不足",
+  "对白轮次不足",
+  "内容段过短",
+  "内容偏概要",
+  "动作描写偏结果",
+  "对白偏干",
+  "场景切分可能过细",
+  "原文线索使用不足",
+  "原文章节未覆盖",
+  "场景缺少转折",
+  "场景前后变化不足",
+  "对白攻防不足",
+  "场景推进功能不足",
+  "主体篇幅不足",
+  "预计时长不足",
   "自然场景边界",
   /minTotalBeats:\s*targetDurationMinutes\s*\*\s*8/,
   /minDialogueBeats:\s*targetDurationMinutes\s*\*\s*4/,
@@ -182,7 +180,7 @@ assertContains("src/lib/generation/prompts.ts", [
   "先读完整章节正文",
   "beat_budget 必须根据目标时长、自然场面容量和原文可拍素材分配",
   "写正文时必须回看完整原文",
-  "不得只复述 Analyzer 或 Planner 摘要",
+  "不得只复述前序梳理或场景安排摘要",
 ]);
 assertContains("src/lib/generation/prompts.ts", [
   /buildPlannerPrompt[\s\S]*小说章节（完整原文，必须用于判断自然场景边界和戏剧规划）[\s\S]*chapterDigest\(request\)[\s\S]*Analyzer 输出/,
@@ -257,7 +255,34 @@ assertContains("src/components/workbench/AdaptationReportPanel.tsx", [
   "自定义 AI 改写",
   "按自定义要求改写",
 ]);
-console.log("  ✓ revision workflow applies visible direction rewrites");
+assertContains("src/lib/generation/prompts.ts", [
+  "说明如何从原章节事实改编",
+  "不得写占位说明",
+]);
+assertNotContains("src/lib/generation/prompts.ts", [
+  "与 scene_plan 一致",
+  "与 planner 规划一致",
+  "保持 planner 规划",
+]);
+assertContains("src/lib/generation/generate.ts", [
+  "INTERNAL_PLACEHOLDER_PATTERNS",
+  "isInternalPlaceholderText",
+  "asUserFacingStringArray(value.adaptation_notes)",
+  "userFacingNotes(sceneValue.adaptation_notes, planned.adaptation_notes ?? [])",
+  "main_conflicts: asUserFacingStringArray(reportValue.main_conflicts)",
+  "omitted_or_compressed: asUserFacingStringArray(reportValue.omitted_or_compressed)",
+  "revision_suggestions: asUserFacingStringArray(reportValue.revision_suggestions)",
+]);
+assertContains("src/components/workbench/AdaptationReportPanel.tsx", [
+  "internalPlaceholderPatterns",
+  "userFacingItems(report?.main_conflicts)",
+  "userFacingItems(report?.omitted_or_compressed)",
+  "userFacingItems(report?.revision_suggestions)",
+  "userFacingItems(scene.adaptation_notes)",
+  "items={mainConflicts}",
+  "items={omittedOrCompressed}",
+]);
+console.log("  ✓ revision workflow applies visible direction rewrites and hides internal planning placeholders");
 
 assertContains("src/lib/generation/types.ts", [
   '"needs_revision"',
@@ -349,22 +374,22 @@ assertContains("src/app/api/generate/analyzer/route.ts", [
 ]);
 assertContains("src/app/api/generate/planner/route.ts", [
   "runPlannerStage",
-  "Expected analyzer stage output",
+  "前一步生成结果缺失，请从前面的步骤重新生成。",
   "stageResponse",
 ]);
 assertContains("src/app/api/generate/screenwriter/route.ts", [
   "runScreenwriterStage",
-  "Expected planner stage output",
+  "前一步生成结果缺失，请从前面的步骤重新生成。",
   "stageResponse",
 ]);
 assertContains("src/app/api/generate/reporter/route.ts", [
   "runReporterStage",
-  "Expected screenwriter stage output",
+  "前一步生成结果缺失，请从前面的步骤重新生成。",
   "stageResponse",
 ]);
 assertContains("src/app/api/generate/assemble/route.ts", [
   "assembleGenerationResult",
-  "Expected complete stage outputs",
+  "生成进度不完整，请重新生成剧本。",
   "finalGenerationResponse",
 ]);
 assertNotContains("src/app/api/generate/assemble/route.ts", [
@@ -392,7 +417,7 @@ assertContains("src/components/workbench/WorkbenchShell.tsx", [
   '"needs_revision"',
   '"success"',
   "ai_draft",
-  "结构化草稿",
+  "剧本初稿",
   "runStageRequest",
   "/api/generate/analyzer",
   "/api/generate/planner",
@@ -409,25 +434,34 @@ assertNotContains("src/components/workbench/WorkbenchShell.tsx", [
 ]);
 assertContains("src/components/workbench/GenerationPanel.tsx", [
   "needs_revision",
-  "剧本质量不足",
-  "结构化草稿",
+  "剧本初稿",
+  "篇幅、场景推进、动作或对白还不够充分",
   "stagePreviews",
-  "阶段结果",
+  "创作进度",
   "details",
-  "targetDurationMinutes",
-  "CAPACITY_SUMMARY",
-  "无法支撑",
+  "capacitySummary",
+  "篇幅参考",
+]);
+assertContains("src/lib/generation/quality.ts", [
+  "容量概览：已划分成",
+  "现有内容：内容段",
+  "预计可支撑",
+]);
+assertNotContains("src/lib/generation/quality.ts", [
+  "完整场景",
+  "待扩写场景",
+  "碎片场景",
 ]);
 assertContains("src/components/workbench/QualityPanel.tsx", [
   "needsRevision",
-  "不满足目标时长",
-  "剧本质量要求",
+  "剧本初稿还不足以支撑目标时长",
+  "建议补足",
 ]);
 console.log("  ✓ workbench exposes needs_revision distinctly");
 
 assertContains("src/components/workbench/utils.ts", [
   '"ai_draft"',
-  "AI 结构化草稿",
+  "待打磨初稿",
 ]);
 assertContains("src/types/scriptforge.ts", [
   '"ai_draft"',
@@ -561,14 +595,14 @@ function buildDocument(sceneCount, beatsPerScene, dialoguePerScene, contentPrefi
 
 const thinDiagnostics = evaluateScriptDensity(buildDocument(3, 4, 1, "短句"), buildRequest());
 assert.ok(!thinDiagnostics.some((item) => item.message.includes("LOW_SCENE_COUNT")), "Thin document must not fail because of hard-coded scene count");
-assert.ok(thinDiagnostics.some((item) => item.message.includes("LOW_TOTAL_BEATS") && item.severity === "error"), "Thin document must fail LOW_TOTAL_BEATS");
-assert.ok(thinDiagnostics.some((item) => item.message.includes("DURATION_TEXT_UNDERFILLED") && item.severity === "error"), "Thin document must fail DURATION_TEXT_UNDERFILLED");
-assert.ok(thinDiagnostics.some((item) => item.message.includes("SCENE_TEXT_TOO_SHORT") && item.severity === "error"), "Thin document must fail SCENE_TEXT_TOO_SHORT");
-assert.ok(thinDiagnostics.some((item) => item.message.includes("LOW_DIALOGUE_ROUNDS") && item.severity === "error"), "Thin document must fail LOW_DIALOGUE_ROUNDS");
-assert.ok(thinDiagnostics.some((item) => item.message.includes("SUMMARY_LIKE_BEATS") && item.severity === "error"), "Thin document must fail SUMMARY_LIKE_BEATS");
-assert.ok(thinDiagnostics.some((item) => item.message.includes("RESULT_ONLY_ACTION") && item.severity === "error"), "Thin document must fail RESULT_ONLY_ACTION");
-assert.ok(thinDiagnostics.some((item) => item.message.includes("DRY_DIALOGUE") && item.severity === "error"), "Thin document must fail DRY_DIALOGUE");
-assert.ok(thinDiagnostics.some((item) => item.message.includes("DURATION_UNDERFILLED") && item.severity === "error"), "Thin document must fail DURATION_UNDERFILLED");
+assert.ok(thinDiagnostics.some((item) => item.message.includes("篇幅不足") && item.severity === "error"), "Thin document must fail when content volume is far too low");
+assert.ok(thinDiagnostics.some((item) => item.message.includes("主体篇幅不足") && item.severity === "error"), "Thin document must fail when body text is far too short");
+assert.ok(thinDiagnostics.some((item) => item.message.includes("场景篇幅偏短") && item.severity === "error"), "Thin document must fail when scene text is too short");
+assert.ok(thinDiagnostics.some((item) => item.message.includes("对白轮次不足") && item.severity === "error"), "Thin document must fail when dialogue rounds are too low");
+assert.ok(thinDiagnostics.some((item) => item.message.includes("内容偏概要") && item.severity === "error"), "Thin document must fail when beats read like summaries");
+assert.ok(thinDiagnostics.some((item) => item.message.includes("动作描写偏结果") && item.severity === "error"), "Thin document must fail when action only states results");
+assert.ok(thinDiagnostics.some((item) => item.message.includes("对白偏干") && item.severity === "error"), "Thin document must fail when dialogue is too dry");
+assert.ok(thinDiagnostics.some((item) => item.message.includes("预计时长不足") && item.severity === "error"), "Thin document must fail when estimated duration is far too low");
 
 const structurallyWeakDocument = buildDocument(3, 32, 12);
 for (const scene of structurallyWeakDocument.script.scenes) {
@@ -584,27 +618,27 @@ for (const scene of structurallyWeakDocument.script.scenes) {
   for (const beat of scene.beats) beat.source_refs = ["fact_001"];
 }
 const structuralDiagnostics = evaluateScriptDensity(structurallyWeakDocument, buildRequest());
-assert.ok(structuralDiagnostics.some((item) => item.message.includes("SCENE_NO_TURNING_POINT") && item.severity === "error"), "Missing scene turning points must fail");
-assert.ok(structuralDiagnostics.some((item) => item.message.includes("SCENE_STATIC_ARC") && item.severity === "error"), "Static scene arcs must fail");
-assert.ok(structuralDiagnostics.some((item) => item.message.includes("DIALOGUE_NO_EXCHANGE") && item.severity === "error"), "Missing dialogue exchange must fail");
-assert.ok(structuralDiagnostics.some((item) => item.message.includes("BEAT_FUNCTION_MISSING_ARC") && item.severity === "error"), "Missing core beat functions must fail");
-assert.ok(structuralDiagnostics.some((item) => item.message.includes("FACT_REF_UNDERUSED") && item.severity === "error"), "Unused source facts must fail");
+assert.ok(structuralDiagnostics.some((item) => item.message.includes("场景缺少转折") && item.severity === "error"), "Missing scene turning points must fail");
+assert.ok(structuralDiagnostics.some((item) => item.message.includes("场景前后变化不足") && item.severity === "error"), "Static scene arcs must fail");
+assert.ok(structuralDiagnostics.some((item) => item.message.includes("对白攻防不足") && item.severity === "error"), "Missing dialogue exchange must fail");
+assert.ok(structuralDiagnostics.some((item) => item.message.includes("场景推进功能不足") && item.severity === "error"), "Missing core beat functions must fail");
+assert.ok(structuralDiagnostics.some((item) => item.message.includes("原文线索使用不足") && item.severity === "error"), "Unused source facts must fail");
 console.log("  ✓ structure quality gate catches missing scene arc, exchange and fact usage");
 
 const nearTargetThinDiagnostics = evaluateScriptDensity(
   buildDocument(6, 11, 5, "摘要", { extraBeats: 4 }),
   buildRequest(9),
 );
-assert.equal(findDiagnostic(nearTargetThinDiagnostics, "LOW_TOTAL_BEATS")?.severity, "warning", "Near-target beats should warn instead of failing");
-assert.equal(findDiagnostic(nearTargetThinDiagnostics, "DURATION_UNDERFILLED")?.severity, "warning", "Near-target duration should warn instead of failing");
-assert.equal(findDiagnostic(nearTargetThinDiagnostics, "LOW_DIALOGUE_COUNT")?.severity, "warning", "Near-target dialogue count should warn instead of failing");
-assert.equal(findDiagnostic(nearTargetThinDiagnostics, "LOW_DIALOGUE_ROUNDS")?.severity, "warning", "Near-target dialogue rounds should warn instead of failing");
-assert.equal(findDiagnostic(nearTargetThinDiagnostics, "DURATION_TEXT_UNDERFILLED")?.severity, "error", "Thin text should still fail when far below target");
-assert.equal(findDiagnostic(nearTargetThinDiagnostics, "SUMMARY_LIKE_BEATS")?.severity, "error", "Summary-like beats should still fail when severe");
-assert.equal(findDiagnostic(nearTargetThinDiagnostics, "RESULT_ONLY_ACTION")?.severity, "error", "Result-only action should still fail when severe");
-assert.equal(findDiagnostic(nearTargetThinDiagnostics, "DRY_DIALOGUE")?.severity, "error", "Dry dialogue should still fail when severe");
+assert.equal(findDiagnostic(nearTargetThinDiagnostics, "篇幅不足")?.severity, "warning", "Near-target beats should warn instead of failing");
+assert.equal(findDiagnostic(nearTargetThinDiagnostics, "预计时长不足")?.severity, "warning", "Near-target duration should warn instead of failing");
+assert.equal(findDiagnostic(nearTargetThinDiagnostics, "对白篇幅不足")?.severity, "warning", "Near-target dialogue count should warn instead of failing");
+assert.equal(findDiagnostic(nearTargetThinDiagnostics, "对白轮次不足")?.severity, "warning", "Near-target dialogue rounds should warn instead of failing");
+assert.equal(findDiagnostic(nearTargetThinDiagnostics, "主体篇幅不足")?.severity, "error", "Thin text should still fail when far below target");
+assert.equal(findDiagnostic(nearTargetThinDiagnostics, "内容偏概要")?.severity, "error", "Summary-like beats should still fail when severe");
+assert.equal(findDiagnostic(nearTargetThinDiagnostics, "动作描写偏结果")?.severity, "error", "Result-only action should still fail when severe");
+assert.equal(findDiagnostic(nearTargetThinDiagnostics, "对白偏干")?.severity, "error", "Dry dialogue should still fail when severe");
 assert.equal(
-  nearTargetThinDiagnostics.filter((item) => item.message.includes("SCENE_TEXT_TOO_SHORT")).length,
+  nearTargetThinDiagnostics.filter((item) => item.message.includes("场景篇幅偏短")).length,
   1,
   "Scene text diagnostics should be aggregated instead of repeated per scene",
 );
@@ -636,7 +670,7 @@ for (const scene of artificialSplitDocument.script.scenes) {
   scene.characters = ["char_001", "char_002"];
 }
 const artificialSplitDiagnostics = evaluateScriptDensity(artificialSplitDocument, buildRequest());
-assert.equal(findDiagnostic(artificialSplitDiagnostics, "POSSIBLE_ARTIFICIAL_SCENE_SPLIT")?.severity, "warning", "Artificial scene splitting should warn instead of hard-failing");
+assert.equal(findDiagnostic(artificialSplitDiagnostics, "场景切分可能过细")?.severity, "warning", "Artificial scene splitting should warn instead of hard-failing");
 console.log("  ✓ artificial scene splitting is surfaced as a warning");
 
 const denseDiagnostics = evaluateScriptDensity(buildDocument(6, 16, 8), buildRequest());

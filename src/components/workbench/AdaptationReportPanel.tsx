@@ -3,9 +3,12 @@ import type { ValidationResult } from "@/lib/schema";
 import type { ScriptForgeDocument } from "@/types/scriptforge";
 import { validationSummary } from "./utils";
 
+type GenerateState = "idle" | "loading" | "success" | "needs_revision" | "error";
+
 type AdaptationReportPanelProps = {
   document: ScriptForgeDocument | null;
   validation: ValidationResult | null;
+  generateState: GenerateState;
   revising: boolean;
   onReviseByDirections: (directions: string[]) => void | Promise<void>;
 };
@@ -18,18 +21,51 @@ const categoryTone: Record<AdaptationDecisionCategory, string> = {
   "合并/改写": "border-cyan-200 bg-cyan-50 text-cyan-800",
 };
 
+const internalPlaceholderPatterns = [
+  /scene_plan/i,
+  /planner/i,
+  /与\s*scene[_ ]?plan\s*一致/i,
+  /保持\s*planner\s*规划/i,
+  /填写对应规划中的具体/,
+  /不得写占位说明/,
+];
+
+function userFacingItems(items: string[] | undefined): string[] {
+  return (items ?? [])
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && !internalPlaceholderPatterns.some((pattern) => pattern.test(item)));
+}
+
+function reportEmptyMessage(generateState: GenerateState): string {
+  switch (generateState) {
+    case "loading":
+      return "正在生成剧本初稿，完成后这里会展示保留、压缩和改写说明。";
+    case "error":
+      return "这次生成没有成功。请根据上方提示调整后重新生成，改编报告会在生成成功后出现。";
+    case "success":
+    case "needs_revision":
+      return "当前还没有可展示的改编报告，请重新生成或补充剧本中的改编说明。";
+    case "idle":
+    default:
+      return "还没有生成剧本初稿。请先完成章节输入和改编偏好，然后点击“生成剧本初稿”。";
+  }
+}
+
 export function AdaptationReportPanel({
   document,
   validation,
+  generateState,
   revising,
   onReviseByDirections,
 }: AdaptationReportPanelProps) {
   const report = document?.script.adaptation_report;
+  const mainConflicts = userFacingItems(report?.main_conflicts);
+  const omittedOrCompressed = userFacingItems(report?.omitted_or_compressed);
+  const directions = userFacingItems(report?.revision_suggestions);
   const sceneAdaptationNotes = document ? buildSceneAdaptationNotes(document) : [];
   const decisionCount = report
-    ? report.main_conflicts.length + report.omitted_or_compressed.length + sceneAdaptationNotes.length
+    ? mainConflicts.length + omittedOrCompressed.length + sceneAdaptationNotes.length
     : 0;
-  const directions = report?.revision_suggestions ?? [];
 
   function handleCustomRewriteSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -49,13 +85,13 @@ export function AdaptationReportPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">改编报告</h2>
-          <p className="mt-1 text-sm text-zinc-600">从 adaptation_report 与 scene.adaptation_notes 组织小说到剧本的变化。</p>
+          <p className="mt-1 text-sm text-zinc-600">查看哪些内容被保留、压缩或改写，以及后续可优化的方向。</p>
         </div>
         <ValidationBadge validation={validation} />
       </div>
 
       {!report ? (
-        <p className="mt-2 text-sm text-zinc-600">暂无改编报告。</p>
+        <p className="mt-2 text-sm text-zinc-600">{reportEmptyMessage(generateState)}</p>
       ) : (
         <div className="mt-4 space-y-4 text-sm">
           <div className="grid gap-3 sm:grid-cols-3">
@@ -80,13 +116,13 @@ export function AdaptationReportPanel({
               <DecisionGroup
                 category="保留"
                 emptyText="缺少保留内容说明"
-                items={report.main_conflicts}
+                items={mainConflicts}
                 title="保留的核心冲突"
               />
               <DecisionGroup
                 category="压缩/省略"
                 emptyText="缺少压缩或省略说明"
-                items={report.omitted_or_compressed}
+                items={omittedOrCompressed}
                 title="压缩/省略的内容"
               />
               <DecisionGroup
@@ -169,7 +205,7 @@ export function AdaptationReportPanel({
 }
 function buildSceneAdaptationNotes(document: ScriptForgeDocument): string[] {
   return document.script.scenes.flatMap((scene) =>
-    (scene.adaptation_notes ?? []).map((note) => `${scene.title}：${note}`),
+    userFacingItems(scene.adaptation_notes).map((note) => `${scene.title}：${note}`),
   );
 }
 
@@ -223,7 +259,7 @@ function ValidationBadge({ validation }: { validation: ValidationResult | null }
 
   return (
     <div className={`rounded-md border px-3 py-2 text-sm ${tone}`}>
-      <div className="font-medium">校验状态</div>
+      <div className="font-medium">检查状态</div>
       <div>{validationSummary(validation)}</div>
     </div>
   );

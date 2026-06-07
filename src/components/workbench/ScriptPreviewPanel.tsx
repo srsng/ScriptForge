@@ -1,10 +1,13 @@
 import type { ValidationResult } from "@/lib/schema";
-import type { ScriptBeat, ScriptForgeDocument, ScriptScene } from "@/types/scriptforge";
-import { validationSummary } from "./utils";
+import type { CharacterRole, ScriptBeat, ScriptForgeDocument, ScriptScene } from "@/types/scriptforge";
+import { formatValidationPath, validationSummary } from "./utils";
+
+type GenerateState = "idle" | "loading" | "success" | "needs_revision" | "error";
 
 type ScriptPreviewPanelProps = {
   document: ScriptForgeDocument | null;
   validation: ValidationResult | null;
+  generateState: GenerateState;
 };
 
 const beatTone: Record<ScriptBeat["type"], string> = {
@@ -13,6 +16,15 @@ const beatTone: Record<ScriptBeat["type"], string> = {
   narration: "border-violet-200 bg-violet-50 text-violet-800",
   transition: "border-amber-200 bg-amber-50 text-amber-800",
   note: "border-zinc-200 bg-zinc-100 text-zinc-700",
+};
+
+const characterRoleLabels: Record<CharacterRole, string> = {
+  protagonist: "主角",
+  antagonist: "反派",
+  supporting: "配角",
+  minor: "次要角色",
+  narrator: "旁白",
+  unknown: "未标明",
 };
 
 function beatTypeLabel(type: ScriptBeat["type"]): string {
@@ -30,12 +42,27 @@ function beatTypeLabel(type: ScriptBeat["type"]): string {
   }
 }
 
-export function ScriptPreviewPanel({ document, validation }: ScriptPreviewPanelProps) {
+function previewEmptyMessage(generateState: GenerateState): string {
+  switch (generateState) {
+    case "loading":
+      return "正在生成剧本初稿，完成后这里会展示人物、地点和场景。";
+    case "error":
+      return "这次生成没有成功。请根据上方提示调整后重新生成，预览会在生成成功后出现。";
+    case "success":
+    case "needs_revision":
+      return "当前还没有可预览的剧本内容，请重新生成或补充剧本初稿内容。";
+    case "idle":
+    default:
+      return "还没有生成剧本初稿。请先完成章节输入和改编偏好，然后点击“生成剧本初稿”。";
+  }
+}
+
+export function ScriptPreviewPanel({ document, validation, generateState }: ScriptPreviewPanelProps) {
   if (!document) {
     return (
       <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-semibold">剧本预览</h2>
-        <p className="mt-2 text-sm text-zinc-600">生成或粘贴 ScriptForgeDocument 后，这里会展示人物、地点、场景、来源章节、改编说明和校验状态。</p>
+        <p className="mt-2 text-sm text-zinc-600">{previewEmptyMessage(generateState)}</p>
       </section>
     );
   }
@@ -61,26 +88,6 @@ export function ScriptPreviewPanel({ document, validation }: ScriptPreviewPanelP
 
       <ValidationIssues validation={validation} />
 
-      <div className="rounded-md border border-zinc-200 p-3">
-        <h3 className="font-semibold">原文事实板</h3>
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
-          {script.source.chapters.map((chapter) => (
-            <article className="rounded-md bg-zinc-50 p-3 text-sm" key={chapter.id}>
-              <div className="font-medium">{chapter.title}</div>
-              <p className="mt-1 text-zinc-600">{chapter.summary}</p>
-              <ul className="mt-2 space-y-1 text-zinc-700">
-                {chapter.key_facts.map((fact) => (
-                  <li key={fact.id}>
-                    <code className="rounded bg-white px-1 text-xs">{fact.id}</code>
-                    <span className="ml-1 text-xs text-zinc-500">{fact.type}</span>：{fact.content}
-                  </li>
-                ))}
-              </ul>
-            </article>
-          ))}
-        </div>
-      </div>
-
       <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-md border border-zinc-200 p-3">
           <h3 className="font-semibold">人物表</h3>
@@ -89,11 +96,11 @@ export function ScriptPreviewPanel({ document, validation }: ScriptPreviewPanelP
               <article className="rounded-md bg-zinc-50 p-3 text-sm" key={character.id}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{character.name}</span>
-                  <span className="rounded bg-white px-2 py-0.5 text-xs text-zinc-600">{character.role}</span>
+                  <span className="rounded bg-white px-2 py-0.5 text-xs text-zinc-600">{characterRoleLabels[character.role]}</span>
                 </div>
                 <p className="mt-1 text-zinc-700">{character.description || "缺少人物说明"}</p>
                 <p className="mt-1 text-zinc-600">弧光：{character.arc || "缺少弧光"}</p>
-                <p className="mt-1 text-zinc-600">首次来源：{firstSourceByCharacter.get(character.id) ?? "缺少来源"}</p>
+                <p className="mt-1 text-zinc-600">首次来源：{firstSourceByCharacter.get(character.id) ?? "暂无场景引用"}</p>
               </article>
             )) : (
               <p className="text-sm text-zinc-600">暂无人物。</p>
@@ -122,7 +129,7 @@ export function ScriptPreviewPanel({ document, validation }: ScriptPreviewPanelP
       </div>
 
       <div className="rounded-md border border-zinc-200 p-3">
-        <h3 className="font-semibold">场景与来源追踪</h3>
+        <h3 className="font-semibold">场景预览</h3>
         <div className="mt-3 space-y-4">
           {script.scenes.length > 0 ? script.scenes.map((scene) => {
             const location = locations.get(scene.location);
@@ -145,8 +152,8 @@ export function ScriptPreviewPanel({ document, validation }: ScriptPreviewPanelP
                   <p><span className="font-medium">转折：</span>{scene.scene_card.turning_point}</p>
                   <p><span className="font-medium">离场状态：</span>{scene.scene_card.exit_state}</p>
                   <p><span className="font-medium">场景氛围：</span>{scene.scene_card.visual_atmosphere}</p>
-                  <p><span className="font-medium">戏剧目的：</span>{scene.dramatic_purpose || "缺少 dramatic_purpose"}</p>
-                  <p><span className="font-medium">冲突：</span>{scene.conflict || "缺少 conflict"}</p>
+                  <p><span className="font-medium">戏剧目的：</span>{scene.dramatic_purpose || "缺少戏剧目的"}</p>
+                  <p><span className="font-medium">冲突：</span>{scene.conflict || "缺少冲突"}</p>
                   <p>
                     <span className="font-medium">出场人物：</span>
                     {scene.characters.length > 0 ? scene.characters.map((id) => characters.get(id)?.name ?? id).join("、") : "暂无人物"}
@@ -176,14 +183,13 @@ export function ScriptPreviewPanel({ document, validation }: ScriptPreviewPanelP
                         <div className="mb-1 flex flex-wrap items-center gap-2">
                           <span className={`rounded border px-2 py-0.5 text-xs ${beatTone[beat.type]}`}>{beatTypeLabel(beat.type)}</span>
                           <span className="rounded border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs text-zinc-700">{beat.function}</span>
-                          {beat.type === "dialogue" ? <span className="font-semibold text-zinc-900">speaker：{speaker || "缺少说话人"}</span> : null}
+                          {beat.type === "dialogue" ? <span className="font-semibold text-zinc-900">说话人：{speaker || "缺少说话人"}</span> : null}
                         </div>
-                        <p className={beat.type === "dialogue" ? "text-zinc-950" : "text-zinc-700"}>{beat.content || "缺少 beat 内容"}</p>
-                        <p className="mt-1 text-xs text-zinc-500">来源事实：{beat.source_refs.join("、")}</p>
+                        <p className={beat.type === "dialogue" ? "text-zinc-950" : "text-zinc-700"}>{beat.content || "缺少内容"}</p>
                       </div>
                     );
                   }) : (
-                    <p className="rounded-md bg-white px-3 py-2 text-sm text-zinc-600">暂无 beats。</p>
+                    <p className="rounded-md bg-white px-3 py-2 text-sm text-zinc-600">暂无段落。</p>
                   )}
                 </div>
               </article>
@@ -208,7 +214,7 @@ function ValidationBadge({ validation }: { validation: ValidationResult | null }
 
   return (
     <div className={`rounded-md border px-3 py-2 text-sm ${tone}`}>
-      <div className="font-medium">校验状态</div>
+      <div className="font-medium">检查状态</div>
       <div>{validationSummary(validation)}</div>
     </div>
   );
@@ -226,7 +232,7 @@ function ValidationIssues({ validation }: { validation: ValidationResult | null 
       <ul className="mt-2 list-inside list-disc space-y-1 text-amber-800">
         {issues.map((issue, index) => (
           <li key={`${issue.path}-${index}`}>
-            <code className="rounded bg-white px-1 text-xs">{issue.path}</code> {issue.message}
+            <span className="rounded bg-white px-1 text-xs">问题位置：{formatValidationPath(issue.path)}</span> {issue.message}
           </li>
         ))}
       </ul>
@@ -245,9 +251,9 @@ function SourceTrace({
 }) {
   return (
     <div className="mt-3 rounded-md bg-white p-3 text-sm">
-      <p className="font-medium">来源章节</p>
+      <p className="font-medium">章节线索</p>
       {scene.source_chapters.length === 0 ? (
-        <p className="mt-2 text-amber-700">缺少来源：这个场景没有 source_chapters。</p>
+        <p className="mt-2 text-amber-700">缺少章节线索。</p>
       ) : (
         <div className="mt-2 space-y-2">
           {scene.source_chapters.map((chapterId, index) => {
@@ -255,14 +261,14 @@ function SourceTrace({
             if (!chapter) {
               return (
                 <div className="rounded-md border border-red-200 bg-red-50 p-2 text-red-700" key={`${scene.id}-source_chapters-${chapterId}`}>
-                  引用不存在：{chapterId}
+                  第 {index + 1} 个章节线索缺失
                 </div>
               );
             }
 
             return (
               <div className="rounded-md border border-cyan-200 bg-cyan-50 p-2 text-cyan-900" key={`${scene.id}-source_chapters-${chapter.id}`}>
-                <div className="font-medium">第 {index + 1} 个来源 · {chapter.title}</div>
+                <div className="font-medium">章节线索 {index + 1} · {chapter.title}</div>
                 <p className="mt-1">章节摘要：{chapter.summary || "缺少来源摘要"}</p>
               </div>
             );
@@ -270,17 +276,17 @@ function SourceTrace({
         </div>
       )}
       <div className="mt-3">
-        <p className="font-medium">来源事实</p>
+        <p className="font-medium">来源线索</p>
         {scene.source_refs.length === 0 ? (
-          <p className="mt-2 text-amber-700">缺少来源事实：这个场景没有 source_refs。</p>
+          <p className="mt-2 text-amber-700">缺少来源线索。</p>
         ) : (
           <ul className="mt-2 space-y-1 text-zinc-700">
-            {scene.source_refs.map((factId) => {
+            {scene.source_refs.map((factId, index) => {
               const fact = facts.get(factId);
               return (
                 <li className={fact ? "" : "text-red-700"} key={`${scene.id}-source_refs-${factId}`}>
-                  <code className="rounded bg-zinc-50 px-1 text-xs">{factId}</code>
-                  {fact ? ` ${fact.type}：${fact.content}` : " 引用不存在"}
+                  <span className="rounded bg-zinc-50 px-1 text-xs">线索 {index + 1}</span>
+                  {fact ? ` ${fact.type}：${fact.content}` : " 对应原文线索缺失"}
                 </li>
               );
             })}

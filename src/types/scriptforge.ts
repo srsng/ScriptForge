@@ -207,6 +207,7 @@ export type WorkspaceState = {
   yamlValidation: unknown | null;
   repairResult: unknown | null;
   generationDiagnostics: unknown[];
+  generationStagePreviews: unknown[];
   generationError: string;
   message: string;
   updated_at: string;

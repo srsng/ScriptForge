@@ -45,14 +45,14 @@ function dataPath(relativePath: string): string {
   const resolved = path.resolve(root, relativePath);
   const relative = path.relative(root, resolved);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error(`Unsafe workspace path: ${relativePath}`);
+    throw new Error("工作区文件路径异常，请返回列表重新打开。");
   }
   return resolved;
 }
 
 function assertSafeWorkspaceId(id: string): void {
   if (!WORKSPACE_ID_PATTERN.test(id)) {
-    throw new Error("Invalid workspace id");
+    throw new Error("工作区地址不正确，请返回列表重新打开。");
   }
 }
 
@@ -121,6 +121,48 @@ function validateScriptForgeDocument(value: unknown): ScriptForgeDocument | null
   return value as ScriptForgeDocument;
 }
 
+function buildRestoredGenerationStagePreviews(result: ScriptForgeDocument): unknown[] {
+  const chapters = result.script.source.chapters;
+  const factCount = chapters.reduce((sum, chapter) => sum + chapter.key_facts.length, 0);
+  const scenes = result.script.scenes;
+  const beatCount = scenes.reduce((sum, scene) => sum + scene.beats.length, 0);
+
+  return [
+    {
+      stage: "analyzer",
+      label: "梳理原文",
+      summary: `${chapters.length} 章素材，${factCount} 条关键信息`,
+      json: JSON.stringify(result.script.source, null, 2),
+    },
+    {
+      stage: "planner",
+      label: "规划场景",
+      summary: `${result.script.characters.length} 个人物，${result.script.locations.length} 个地点，${scenes.length} 个场景安排`,
+      json: JSON.stringify({
+        characters: result.script.characters,
+        locations: result.script.locations,
+        scenes: scenes.map((scene) => scene.scene_card),
+      }, null, 2),
+    },
+    {
+      stage: "screenwriter",
+      label: "撰写剧本",
+      summary: `${scenes.length} 个场景，${beatCount} 段剧本内容`,
+      json: JSON.stringify({ scenes }, null, 2),
+    },
+    {
+      stage: "reporter",
+      label: "整理改编说明",
+      summary: `${result.script.adaptation_report.revision_suggestions.length} 条打磨建议`,
+      json: JSON.stringify({
+        title: result.script.title,
+        logline: result.script.metadata.logline,
+        adaptation_report: result.script.adaptation_report,
+      }, null, 2),
+    },
+  ];
+}
+
 function normalizeWorkspaceState(input: unknown, now = new Date().toISOString()): WorkspaceState | null {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
 
@@ -140,6 +182,12 @@ function normalizeWorkspaceState(input: unknown, now = new Date().toISOString())
     ? null
     : validateScriptForgeDocument(candidate.result);
   if (candidate.result !== null && candidate.result !== undefined && !result) return null;
+  const savedGenerationStagePreviews = Array.isArray(candidate.generationStagePreviews) ? candidate.generationStagePreviews : [];
+  const generationStagePreviews = savedGenerationStagePreviews.length > 0
+    ? savedGenerationStagePreviews
+    : result
+      ? buildRestoredGenerationStagePreviews(result)
+      : [];
 
   return {
     schema_version: "1.1",
@@ -153,6 +201,7 @@ function normalizeWorkspaceState(input: unknown, now = new Date().toISOString())
     yamlValidation: candidate.yamlValidation ?? null,
     repairResult: candidate.repairResult ?? null,
     generationDiagnostics: Array.isArray(candidate.generationDiagnostics) ? candidate.generationDiagnostics : [],
+    generationStagePreviews,
     generationError: typeof candidate.generationError === "string" ? candidate.generationError : "",
     message: typeof candidate.message === "string" ? candidate.message : "已恢复工作区",
     updated_at: now,
@@ -184,7 +233,7 @@ export async function createWorkspace(input: CreateWorkspaceInput): Promise<Work
   const now = new Date().toISOString();
   const state = normalizeWorkspaceState(input.state, now);
   if (!state) {
-    return { ok: false, status: 400, error: "State must contain a valid WorkspaceState with at least three chapters." };
+    return { ok: false, status: 400, error: "请至少载入三章有效小说内容后再保存工作区。" };
   }
 
   const id = createWorkspaceId();
@@ -225,13 +274,13 @@ export async function saveWorkspaceState(id: string, input: SaveWorkspaceStateIn
   const entries = await readIndex();
   const entry = entries.find((item) => item.id === id);
   if (!entry) {
-    return { ok: false, status: 404, error: "Workspace not found." };
+    return { ok: false, status: 404, error: "没有找到这个工作区，请返回列表重新打开。" };
   }
 
   const now = new Date().toISOString();
   const state = normalizeWorkspaceState(input.state, now);
   if (!state) {
-    return { ok: false, status: 400, error: "State must contain a valid WorkspaceState with at least three chapters." };
+    return { ok: false, status: 400, error: "请至少载入三章有效小说内容后再保存工作区。" };
   }
 
   const nextEntry: WorkspaceIndexEntry = {

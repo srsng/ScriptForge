@@ -16,7 +16,7 @@ type ReviseBody = {
 
 function normalizeDirections(value: unknown): string[] | undefined {
   if (value === undefined) return undefined;
-  if (!Array.isArray(value)) throw new Error("directions must be an array of strings.");
+  if (!Array.isArray(value)) throw new Error("改写要求格式不正确，请重新选择要应用的建议。");
   return value
     .map((item) => typeof item === "string" ? item.trim() : "")
     .filter(Boolean);
@@ -24,7 +24,7 @@ function normalizeDirections(value: unknown): string[] | undefined {
 
 function normalizeRevisionRequest(body: ReviseBody): RevisionRequest {
   const request = normalizeGenerationRequest(body.request);
-  if (!request) throw new Error("Invalid revision request payload.");
+  if (!request) throw new Error("章节内容或改编偏好不完整，请检查后再改写。");
 
   if (!body.document || typeof body.document !== "object" || Array.isArray(body.document)) {
     throw new Error("Expected current ScriptForgeDocument.");
@@ -33,7 +33,7 @@ function normalizeRevisionRequest(body: ReviseBody): RevisionRequest {
   const document = body.document as ScriptForgeDocument;
   const validation = validateScriptForgeDocument(document);
   if (!validation.valid) {
-    throw new Error("Current ScriptForgeDocument must pass Schema and reference validation before revision.");
+    throw new Error("当前剧本还有校验问题，请先按提示修正后再改写。");
   }
 
   return {
@@ -46,7 +46,7 @@ function normalizeRevisionRequest(body: ReviseBody): RevisionRequest {
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null) as ReviseBody | null;
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json({ error: "Expected JSON object body." }, { status: 400 });
+    return NextResponse.json({ error: "请求内容不完整，请刷新页面后重试。" }, { status: 400 });
   }
 
   try {
