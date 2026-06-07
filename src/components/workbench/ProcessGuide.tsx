@@ -89,7 +89,7 @@ function nextActionText(props: ProcessGuideProps): string {
   if (!props.hasDocument) return "下一步：点击 AI 生成剧本初稿。";
   if (!props.validation) return "下一步：生成 YAML 后重新校验。";
   if (!props.validation.valid) return "下一步：检查错误，可先预览自动修复项；无法修复时建议重新生成。";
-  if (props.generateState === "needs_revision") return "下一步：按后续修改建议改写，或重新生成更厚实的草稿。";
+  if (props.generateState === "needs_revision") return "下一步：按后续修改建议或自定义要求改写，或重新生成更厚实的草稿。";
   if (props.exportBlocked) return "下一步：修复 YAML 校验错误后再导出。";
   return "下一步：导出 YAML、JSON 或 Markdown 继续打磨。";
 }

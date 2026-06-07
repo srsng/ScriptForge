@@ -1,3 +1,4 @@
+import type { FormEvent } from "react";
 import type { ValidationResult } from "@/lib/schema";
 import type { ScriptForgeDocument } from "@/types/scriptforge";
 import { validationSummary } from "./utils";
@@ -6,7 +7,7 @@ type AdaptationReportPanelProps = {
   document: ScriptForgeDocument | null;
   validation: ValidationResult | null;
   revising: boolean;
-  onReviseByDirections: (directions: string[]) => void;
+  onReviseByDirections: (directions: string[]) => void | Promise<void>;
 };
 
 type AdaptationDecisionCategory = "保留" | "压缩/省略" | "合并/改写";
@@ -29,6 +30,19 @@ export function AdaptationReportPanel({
     ? report.main_conflicts.length + report.omitted_or_compressed.length + sceneAdaptationNotes.length
     : 0;
   const directions = report?.revision_suggestions ?? [];
+
+  function handleCustomRewriteSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (revising) return;
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const instruction = String(formData.get("customRewriteInstruction") ?? "").trim();
+    if (!instruction) return;
+
+    void onReviseByDirections([`用户自定义改写要求：${instruction}`]);
+    form.reset();
+  }
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
@@ -118,6 +132,35 @@ export function AdaptationReportPanel({
             ) : (
               <p className="mt-3 text-violet-800">缺少后续改进方向。</p>
             )}
+
+            <form className="mt-3 rounded-md border border-violet-100 bg-white p-3" onSubmit={handleCustomRewriteSubmit}>
+              <label className="block text-xs font-semibold text-violet-950" htmlFor="customRewriteInstruction">
+                自定义 AI 改写
+              </label>
+              <p className="mt-1 text-xs text-zinc-600">
+                输入你希望 AI 额外执行的改写要求，将复用当前剧本、原文事实与校验流程。
+              </p>
+              <textarea
+                className="mt-2 min-h-24 w-full rounded-md border border-violet-100 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-violet-400 disabled:bg-zinc-50"
+                disabled={revising}
+                id="customRewriteInstruction"
+                maxLength={800}
+                minLength={4}
+                name="customRewriteInstruction"
+                placeholder="例如：把男女主冲突写得更尖锐，增加一个反转，但不要新增无来源设定。"
+                required
+              />
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-zinc-500">自定义要求不得覆盖结构、原文事实和来源追溯约束，若有需要，请手动在剧本编辑导出区域删除再应用。</span>
+                <button
+                  className="rounded-md bg-violet-700 px-3 py-2 text-xs font-medium text-white hover:bg-violet-800 disabled:bg-zinc-300"
+                  disabled={revising}
+                  type="submit"
+                >
+                  {revising ? "改写中..." : "按自定义要求改写"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
