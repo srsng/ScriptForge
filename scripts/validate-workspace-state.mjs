@@ -35,6 +35,7 @@ for (const token of [
   "yamlValidation",
   "repairResult",
   "generationDiagnostics",
+  "generationStagePreviews",
   "resultSource",
 ]) {
   assert.match(types, new RegExp(token), `types must define full WorkspaceState token: ${token}`);

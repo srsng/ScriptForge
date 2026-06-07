@@ -9,11 +9,10 @@ export async function POST(request: Request) {
   try {
     const body = await readJsonObject(request);
     const generationRequest = normalizeGenerationRequest(body.request);
-    if (!generationRequest) throw new Error("Invalid GenerationRequest payload.");
+    if (!generationRequest) throw new Error("章节内容或改编偏好不完整，请检查后再生成。");
     const analyzer = body.analyzer as AnalyzerStageOutput | undefined;
     const planner = body.planner as PlannerStageOutput | undefined;
-    if (!analyzer) throw new Error("Expected analyzer stage output.");
-    if (!planner) throw new Error("Expected planner stage output.");
+    if (!analyzer || !planner) throw new Error("前一步生成结果缺失，请从前面的步骤重新生成。");
     const result = await runScreenwriterStage(generationRequest, analyzer, planner);
     return stageResponse(result);
   } catch (error) {

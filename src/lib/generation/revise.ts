@@ -82,6 +82,39 @@ function buildPromptBundle(messages: PromptMessage[]): PromptBundle[] {
   ];
 }
 
+function suggestionKey(value: string): string {
+  return value
+    .replace(/[“”"'`]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/[。！？.!?]+$/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function suggestionMatchesDirection(suggestion: string, direction: string): boolean {
+  const suggestionText = suggestionKey(suggestion);
+  const directionText = suggestionKey(direction);
+  if (!suggestionText || !directionText) return false;
+  if (suggestionText === directionText) return true;
+  if (suggestionText.includes(directionText) || directionText.includes(suggestionText)) return true;
+
+  const suggestionTerms = new Set(suggestionText.split(/[\s,，、；;：:（）()]+/).filter((item) => item.length >= 2));
+  const directionTerms = directionText.split(/[\s,，、；;：:（）()]+/).filter((item) => item.length >= 2);
+  if (directionTerms.length === 0 || suggestionTerms.size === 0) return false;
+  const overlap = directionTerms.filter((item) => suggestionTerms.has(item)).length;
+  return overlap >= Math.min(3, directionTerms.length);
+}
+
+function removeAppliedRevisionSuggestions(document: ScriptForgeDocument, directions: string[]): number {
+  const appliedDirections = directions.map(suggestionKey).filter(Boolean);
+  if (appliedDirections.length === 0) return 0;
+
+  const suggestions = document.script.adaptation_report.revision_suggestions;
+  const remaining = suggestions.filter((item) => !appliedDirections.some((direction) => suggestionMatchesDirection(item, direction)));
+  document.script.adaptation_report.revision_suggestions = remaining;
+  return suggestions.length - remaining.length;
+}
+
 export async function reviseScriptForgeDocument(input: RevisionRequest): Promise<GenerationResult> {
   const directions = normalizeDirections(input);
   if (directions.length === 0) {
@@ -131,16 +164,17 @@ export async function reviseScriptForgeDocument(input: RevisionRequest): Promise
   }
 
   const document: ScriptForgeDocument = coerceDocument(parsed.value);
+  const removedSuggestionCount = removeAppliedRevisionSuggestions(document, directions);
   const validation = validateScriptForgeDocument(document);
   if (!validation.valid) {
-    const error = `改写指令执行结果未通过 Schema 或引用校验：${validation.errors.map((item) => item.message).slice(0, 3).join("；")}`;
+    const error = `改写结果没有通过检查：${validation.errors.map((item) => item.message).slice(0, 3).join("；")}`;
     return {
       status: "error",
       error,
       validation,
       diagnostics: [
         ...diagnostics,
-        diagnostic("validation", `改写文档校验失败：${validation.errors.length} 个错误。`, "error", "schema"),
+        diagnostic("validation", `改写后的剧本还有 ${validation.errors.length} 个问题需要处理。`, "error", "schema"),
       ],
       promptStages,
       model: modelResponse.model,
@@ -148,6 +182,9 @@ export async function reviseScriptForgeDocument(input: RevisionRequest): Promise
   }
 
   const qualityDiagnostics = evaluateScriptDensity(document, input.request);
+  const suggestionDiagnostics = removedSuggestionCount > 0
+    ? [diagnostic("reporter", `已移除 ${removedSuggestionCount} 条已应用的后续修改建议。`)]
+    : [];
   const hasQualityError = qualityDiagnostics.some((item) => item.severity === "error");
   const hasWarning = validation.status === "warn" || qualityDiagnostics.some((item) => item.severity === "warning");
 
@@ -157,8 +194,9 @@ export async function reviseScriptForgeDocument(input: RevisionRequest): Promise
     validation,
     diagnostics: [
       ...diagnostics,
-      diagnostic("screenwriter", "AI 已按改写指令返回改写后的 ScriptForgeDocument JSON。"),
-      diagnostic("validation", `改写文档校验状态：${validation.status}。`, validation.status === "warn" ? "warning" : "info"),
+      diagnostic("screenwriter", "AI 已按改写要求返回新的剧本初稿。"),
+      diagnostic("validation", `改写后的剧本检查状态：${validation.status}。`, validation.status === "warn" ? "warning" : "info"),
+      ...suggestionDiagnostics,
       ...qualityDiagnostics,
     ],
     promptStages,

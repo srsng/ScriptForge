@@ -44,7 +44,7 @@ import type {
 type StageName = Exclude<GenerationStage, "validation" | "quality">;
 type StageParseResult<T> = { ok: true; output: T } | { ok: false; message: string };
 
-const DEFAULT_STAGE_TIMEOUT_MS = 180_000;
+const DEFAULT_STAGE_TIMEOUT_MS = 300_000;
 const ID_PATTERN = /^[a-z]+_[0-9]{3}$/;
 const FACT_ID_PATTERN = /^fact_[0-9]{3}$/;
 const SOURCE_FACT_TYPES = new Set<SourceFactType>([
@@ -188,6 +188,28 @@ function asStringArray(value: unknown): string[] {
     : [];
 }
 
+const INTERNAL_PLACEHOLDER_PATTERNS = [
+  /scene_plan/i,
+  /planner/i,
+  /与\s*scene[_ ]?plan\s*一致/i,
+  /保持\s*planner\s*规划/i,
+  /填写对应规划中的具体/,
+  /不得写占位说明/,
+];
+
+function isInternalPlaceholderText(value: string): boolean {
+  return INTERNAL_PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+function asUserFacingStringArray(value: unknown): string[] {
+  return asStringArray(value).filter((item) => !isInternalPlaceholderText(item));
+}
+
+function userFacingNotes(value: unknown, fallback: string[]): string[] {
+  const notes = asUserFacingStringArray(value);
+  return notes.length > 0 ? notes : fallback.filter((item) => !isInternalPlaceholderText(item));
+}
+
 function firstObject(value: unknown, keys: string[]): Record<string, unknown> | null {
   if (!isObject(value)) return null;
   for (const key of keys) {
@@ -252,7 +274,7 @@ function parseAnalyzerOutput(value: unknown, request: GenerationRequest): StageP
   });
 
   if (chapters.some((chapter) => chapter === null)) {
-    return { ok: false, message: "Analyzer 输出章节、摘要或 key_facts 不完整，或 fact id 重复。" };
+    return { ok: false, message: "章节摘要或关键信息不完整，或信息编号重复。" };
   }
 
   if (request.chapters.some((chapter) => !seenChapterIds.has(chapter.id))) {
@@ -342,7 +364,7 @@ function parsePlannedScene(value: unknown): PlannedScene | null {
     dramatic_purpose: asString(value.dramatic_purpose, "需补充戏剧目的。"),
     conflict: asString(value.conflict, "需补充冲突。"),
     ...(beatBudget ? { beat_budget: beatBudget } : {}),
-    adaptation_notes: asStringArray(value.adaptation_notes),
+    adaptation_notes: asUserFacingStringArray(value.adaptation_notes),
   };
 }
 
@@ -448,9 +470,7 @@ function parseScreenwriterOutput(
       dramatic_purpose: planned.dramatic_purpose,
       conflict: planned.conflict,
       beats,
-      adaptation_notes: asStringArray(sceneValue.adaptation_notes).length > 0
-        ? asStringArray(sceneValue.adaptation_notes)
-        : planned.adaptation_notes,
+      adaptation_notes: userFacingNotes(sceneValue.adaptation_notes, planned.adaptation_notes ?? []),
     });
   }
 
@@ -477,9 +497,9 @@ function parseReporterOutput(
     chapter_count: Number(reportValue.chapter_count),
     scene_count: Number(reportValue.scene_count),
     character_count: Number(reportValue.character_count),
-    main_conflicts: asStringArray(reportValue.main_conflicts),
-    omitted_or_compressed: asStringArray(reportValue.omitted_or_compressed),
-    revision_suggestions: asStringArray(reportValue.revision_suggestions),
+    main_conflicts: asUserFacingStringArray(reportValue.main_conflicts),
+    omitted_or_compressed: asUserFacingStringArray(reportValue.omitted_or_compressed),
+    revision_suggestions: asUserFacingStringArray(reportValue.revision_suggestions),
   };
 
   if (
@@ -644,7 +664,7 @@ export async function runAnalyzerStage(request: GenerationRequest): Promise<Gene
   return runStage(
     prompt,
     (value) => parseAnalyzerOutput(value, request),
-    (output) => `Source Facts 已生成：${output.source.chapters.length} 章，${collectFactIds(output.source).size} 条 key_facts。`,
+    (output) => `原文要点已整理：${output.source.chapters.length} 章，${collectFactIds(output.source).size} 条关键信息。`,
   );
 }
 
@@ -656,7 +676,7 @@ export async function runPlannerStage(
   return runStage(
     prompt,
     (value) => parsePlannerOutput(value, analyzer),
-    (output) => `Dramatic Plan 已生成：${output.characters.length} 个角色、${output.locations.length} 个地点、${output.scene_plan.length} 个自然场面卡。`,
+    (output) => `场景设计已完成：${output.characters.length} 个角色、${output.locations.length} 个地点、${output.scene_plan.length} 个场景安排。`,
   );
 }
 
@@ -669,7 +689,7 @@ export async function runScreenwriterStage(
   return runStage(
     prompt,
     (value) => parseScreenwriterOutput(value, analyzer, planner),
-    (output) => `Dense Beats 已生成：${output.scenes.length} 场、${output.scenes.reduce((sum, scene) => sum + scene.beats.length, 0)} 个 beats。`,
+    (output) => `剧本正文已完成：${output.scenes.length} 个场景，${output.scenes.reduce((sum, scene) => sum + scene.beats.length, 0)} 段剧本内容。`,
   );
 }
 
@@ -683,7 +703,7 @@ export async function runReporterStage(
   return runStage(
     prompt,
     (value) => parseReporterOutput(value, analyzer, planner, screenwriter),
-    () => "Adaptation Report 已生成。",
+    () => "改编说明已整理。",
   );
 }
 
@@ -697,14 +717,14 @@ export function assembleGenerationResult(
   const document = assembleDocument(request, stageOutputs.analyzer, stageOutputs.planner, stageOutputs.screenwriter, stageOutputs.reporter);
   const validation = validateScriptForgeDocument(document);
   if (!validation.valid) {
-    const error = `AI 文档未通过 Schema 或引用校验：${validation.errors.map((item) => item.message).slice(0, 3).join("；")}`;
+    const error = `生成结果还不能导出：${validation.errors.map((item) => item.message).slice(0, 3).join("；")}`;
     return {
       status: "error",
       error,
       validation,
       diagnostics: [
         ...diagnostics,
-        diagnostic("validation", `AI 文档校验失败：${validation.errors.length} 个错误。`, "error", "schema"),
+        diagnostic("validation", `剧本检查失败：${validation.errors.length} 个问题。`, "error", "schema"),
       ],
       promptStages,
       stageOutputs,
@@ -721,7 +741,7 @@ export function assembleGenerationResult(
     validation,
     diagnostics: [
       ...diagnostics,
-      diagnostic("validation", `AI 文档校验状态：${validation.status}。`, validation.status === "warn" ? "warning" : "info"),
+      diagnostic("validation", `剧本检查状态：${validation.status}。`, validation.status === "warn" ? "warning" : "info"),
       ...qualityDiagnostics,
     ],
     promptStages,

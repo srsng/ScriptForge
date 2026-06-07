@@ -199,7 +199,7 @@ export function buildScreenwriterPrompt(
 ): PromptBundle {
   const densityInstruction = buildScriptDensityInstruction(request);
   const messages: PromptMessage[] = [
-    { role: "system", content: `你是 ScriptForge Screenwriter，负责根据 scene_plan 写完整可拍摄 scenes。${jsonOnly}` },
+    { role: "system", content: `你是 ScriptForge Screenwriter，负责根据已确定的场景安排写完整可拍摄 scenes。${jsonOnly}` },
     {
       role: "user",
       content: `${targetContext(request)}
@@ -225,15 +225,15 @@ ${jsonBlock(planner)}
       "time": "时间",
       "characters": ["char_001"],
       "scene_card": {
-        "objective": "与 scene_plan 一致",
-        "opposition": "与 scene_plan 一致",
-        "entry_state": "与 scene_plan 一致",
-        "turning_point": "与 scene_plan 一致",
-        "exit_state": "与 scene_plan 一致",
-        "visual_atmosphere": "与 scene_plan 一致"
+        "objective": "填写对应规划中的具体场内目标，不得写占位说明",
+        "opposition": "填写对应规划中的具体阻碍力量，不得写占位说明",
+        "entry_state": "填写对应规划中的具体入场状态，不得写占位说明",
+        "turning_point": "填写对应规划中的具体转折时刻，不得写占位说明",
+        "exit_state": "填写对应规划中的具体离场变化，不得写占位说明",
+        "visual_atmosphere": "填写对应规划中的具体画面氛围，不得写占位说明"
       },
-      "dramatic_purpose": "与 scene_plan 一致",
-      "conflict": "与 scene_plan 一致",
+      "dramatic_purpose": "填写对应规划中的具体叙事目的，不得写占位说明",
+      "conflict": "填写对应规划中的具体场景冲突，不得写占位说明",
       "beats": [
         { "type": "action", "character": "char_001", "function": "establish|probe|evade|pressure|reveal|turn|reaction|pause|transition|note", "source_refs": ["fact_001"], "content": "动作过程：人物起手、迟疑、对象变化、对方反应和停顿" },
         { "type": "dialogue", "character": "char_001", "function": "probe|evade|pressure|reveal|turn|reaction|pause", "source_refs": ["fact_001"], "content": "带潜台词和动作配合的对白" }
@@ -244,11 +244,11 @@ ${jsonBlock(planner)}
 }
 
 要求：
-- scenes 必须逐一对应 planner.scene_plan 的 scene id，不要新增或删除 scene。
-- 每个 scene 的 location、characters、source_chapters、source_refs、scene_card、dramatic_purpose、conflict 必须保持 planner 规划。
-- 每个 beat 必须有 function 和 source_refs；source_refs 只能引用 Analyzer 的 key_facts。
-- 写正文时必须回看完整原文，不得只复述 Analyzer 或 Planner 摘要；从原文细节、动作过程、环境压力、潜台词和人物反应扩写。
-- 如果使用了未被 Analyzer 单独列出的原文细节，必须引用最接近的已有 key_facts，保证 source_refs 可追溯。
+- scenes 必须逐一沿用前一步场景安排的 scene id，不要新增或删除 scene。
+- 每个 scene 的 location、characters、source_chapters、source_refs、scene_card、dramatic_purpose、conflict 必须沿用既定场景安排。
+- 每个 beat 必须有 function 和 source_refs；source_refs 只能引用原文事实板中的 key_facts。
+- 写正文时必须回看完整原文，不得只复述前序梳理或场景安排摘要；从原文细节、动作过程、环境压力、潜台词和人物反应扩写。
+- 如果使用了未被原文事实板单独列出的原文细节，必须引用最接近的已有 key_facts，保证 source_refs 可追溯。
 - dialogue beat 必须有 character，且 character 必须在该 scene.characters 中。
 - action 写过程，不写结果句；dialogue 写潜台词和动作配合。
 - action 与 dialogue 交错推进，容量从目标、阻碍、试探、回避、反击、信息释放和环境压力中自然长出来。
@@ -260,7 +260,7 @@ ${densityInstruction}`,
 
   return {
     stage: "screenwriter",
-    responseContract: "输出 ScreenwriterStageOutput：{ scenes }，scenes 必须对应 scene_plan 且包含 Dense Beats。",
+    responseContract: "输出 ScreenwriterStageOutput：{ scenes }，scenes 必须对应既定场景安排且包含 Dense Beats。",
     messages,
   };
 }
@@ -277,13 +277,13 @@ export function buildReporterPrompt(
       role: "user",
       content: `${targetContext(request)}
 
-Analyzer 输出：
+原文梳理结果：
 ${jsonBlock(analyzer)}
 
-Planner 输出：
+场景安排：
 ${jsonBlock(planner)}
 
-Screenwriter 输出：
+正文写作结果：
 ${jsonBlock(screenwriter)}
 
 请只输出：

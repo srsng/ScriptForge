@@ -7,7 +7,7 @@
  *   1. 工作台从单页堆叠拆成明确组件
  *   2. 仍然使用 M1-M5 已有 API，并接入生成质量门禁契约
  *   3. 预览消费人物、地点、场景、来源章节和改编报告
- *   4. UI 明确展示 AI / ai_draft / needs_revision / repair / 校验 / 导出状态
+ *   4. UI 明确展示生成、打磨、整理、检查和导出状态
  */
 
 import assert from "node:assert/strict";
@@ -31,6 +31,17 @@ function assertContains(path, patterns) {
       assert.match(text, pattern, `${path} should match ${pattern}`);
     } else {
       assert.ok(text.includes(pattern), `${path} should contain ${pattern}`);
+    }
+  }
+}
+
+function assertNotContains(path, patterns) {
+  const text = read(path);
+  for (const pattern of patterns) {
+    if (pattern instanceof RegExp) {
+      assert.doesNotMatch(text, pattern, `${path} should not match ${pattern}`);
+    } else {
+      assert.ok(!text.includes(pattern), `${path} should not contain ${pattern}`);
     }
   }
 }
@@ -90,24 +101,25 @@ assertContains("src/components/workbench/WorkbenchShell.tsx", [
 console.log("  ✓ Workbench keeps M1-M5 API wiring");
 
 assertContains("src/components/workbench/GenerationPanel.tsx", [
-  "AI",
   "needs_revision",
-  "结构化草稿",
-  "剧本质量不足",
+  "生成剧本初稿",
+  "需要打磨",
+  "剧本已生成",
   "生成",
-  "结果来源",
+  "创作进度",
+  "篇幅参考",
 ]);
-console.log("  ✓ Generation panel exposes run-state language");
+console.log("  ✓ Generation panel exposes user-facing run-state language");
 
 assertContains("src/components/workbench/QualityPanel.tsx", [
   "ValidationResult",
   "RepairResult",
-  "检查可自动修复项",
-  /应用\s+\{repairResult\.appliedFixes\.length\}\s+项修复/,
-  "错误",
-  "警告",
+  "查看整理建议",
+  /应用\s+\{repairResult\.appliedFixes\.length\}\s+项整理/,
+  "必须处理",
+  "建议完善",
   "needsRevision",
-  "不满足目标时长",
+  "不足以支撑目标时长",
 ]);
 assert.ok(
   !read("src/components/workbench/QualityPanel.tsx").includes("resultSourceLabel"),
@@ -118,17 +130,18 @@ console.log("  ✓ Quality panel exposes validation and repair state without dup
 assertContains("src/components/workbench/ProcessGuide.tsx", [
   "准备章节",
   "设置目标",
-  "生成草稿",
-  "校验质量",
-  "修复或重试",
+  "生成剧本",
+  "检查剧本",
+  "整理或重试",
   "导出交付",
   "已完成",
   "当前",
   "待处理",
-  "引用 ID 不存在",
-  "建议重新生成",
 ]);
-console.log("  ✓ Process guide exposes current flow and error advice");
+assertNotContains("src/components/workbench/ProcessGuide.tsx", [
+  new RegExp(["来源线索", "不存在"].join("")),
+]);
+console.log("  ✓ Process guide exposes current flow without duplicate source warning");
 
 assertContains("src/components/workbench/InputPanel.tsx", [
   "随机载入《全职高手》片段",
@@ -162,16 +175,18 @@ assertContains("src/components/workbench/AdaptationReportPanel.tsx", [
   "全部应用",
   "onReviseByDirections([item])",
   "onReviseByDirections",
+  "自定义 AI 改写",
+  "按自定义要求改写",
 ]);
 console.log("  ✓ Adaptation report panel consumes report fields");
 
 assertContains("src/components/workbench/YamlEditorPanel.tsx", [
-  "重新校验",
-  "复制",
-  "下载 YAML",
-  "下载 JSON",
-  "下载 MD",
-  "导出已阻止",
+  "重新检查",
+  "复制 YAML",
+  "下载 YAML 编辑稿",
+  "下载 Markdown 阅读稿",
+  "确认改动",
+  "暂不能导出",
   "exportBlockedReason",
 ]);
 console.log("  ✓ YAML editor exposes validation-gated export");
@@ -180,7 +195,7 @@ assertContains("src/components/workbench/WorkbenchShell.tsx", [
   "yamlHasDraftChanges",
   "yamlHasValidationErrors",
   "yamlExportBlockedReason",
-  "YAML 有未应用草稿",
+  "导出内容有未确认的编辑",
 ]);
 console.log("  ✓ YAML export blocks dirty or invalid drafts");
 

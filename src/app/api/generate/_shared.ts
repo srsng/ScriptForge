@@ -5,7 +5,7 @@ import type { GenerationResult, GenerationStageResult } from "@/lib/generation/t
 export async function readJsonObject(request: Request): Promise<Record<string, unknown>> {
   const body = await request.json().catch(() => null) as unknown;
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw new Error("Expected JSON object body.");
+    throw new Error("请求内容不完整，请刷新页面后重试。");
   }
   return body as Record<string, unknown>;
 }

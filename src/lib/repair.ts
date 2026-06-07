@@ -351,7 +351,7 @@ function collectRepairableReferenceErrors(script: Record<string, unknown>): Vali
       if (typeof factId === "string" && factIds.size > 0 && !factIds.has(factId)) {
         errors.push(repairReferenceError(
           `$.script.scenes[${si}].source_refs[${ri}]`,
-          `场景来源事实 "${factId}" 不在 source.chapters[].key_facts 中。`,
+          `场景来源事实 "${factId}" 不存在。`,
         ));
       }
     }
@@ -373,7 +373,7 @@ function collectRepairableReferenceErrors(script: Record<string, unknown>): Vali
         if (typeof factId === "string" && factIds.size > 0 && !factIds.has(factId)) {
           errors.push(repairReferenceError(
             `$.script.scenes[${si}].beats[${bi}].source_refs[${ri}]`,
-            `beat 来源事实 "${factId}" 不在 source.chapters[].key_facts 中。`,
+            `片段来源事实 "${factId}" 不存在。`,
           ));
         }
       }
@@ -848,7 +848,7 @@ function fixReferenceError(
       return {
         path,
         type: "fix_reference",
-        message: `场景来源事实 "${badRef}" 不在 key_facts 中，已修正为第一个事实 "${firstFact}"。`,
+        message: `场景来源事实 "${badRef}" 不存在，已改用第一条关键信息 "${firstFact}"。`,
       };
     }
     return null;
@@ -904,7 +904,7 @@ function fixReferenceError(
       return {
         path,
         type: "fix_reference",
-        message: `beat 来源事实 "${badRef}" 不在 key_facts 中，已修正为第一个事实 "${firstFact}"。`,
+        message: `片段来源事实 "${badRef}" 不存在，已改用第一条关键信息 "${firstFact}"。`,
       };
     }
     return null;

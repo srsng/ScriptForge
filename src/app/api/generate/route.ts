@@ -20,7 +20,7 @@ function buildRequestFromSource(body: GenerateBody): GenerationRequest | null {
   const target = body.target && typeof body.target === "object" ? body.target as Partial<GenerationRequest["target"]> : {};
   const duration = normalizeTargetDuration(target.target_duration_minutes);
   if (duration === null) {
-    throw new Error("target_duration_minutes must be an integer between 1 and 180.");
+    throw new Error("目标时长需要填写 1 到 180 之间的整数。");
   }
 
   return {
@@ -42,25 +42,25 @@ async function resolveGenerationRequest(body: GenerateBody): Promise<{ request: 
 
   if (direct) return { request: direct, workspaceId };
   if (body.request !== undefined) {
-    throw new Error("Invalid GenerationRequest payload.");
+    throw new Error("章节内容或改编偏好不完整，请检查后再生成。");
   }
 
   if (workspaceId) {
     const workspace = await getWorkspace(workspaceId);
-    if (!workspace) throw new Error("Workspace not found.");
+    if (!workspace) throw new Error("没有找到这个工作区，请返回列表重新打开。");
     return { request: workspace.request, workspaceId: workspace.id };
   }
 
   const fromSource = buildRequestFromSource(body);
   if (fromSource) return { request: fromSource };
 
-  throw new Error("Expected workspaceId, sourceText, or GenerationRequest payload.");
+  throw new Error("请先提供章节内容，或从已有工作区继续生成。");
 }
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null) as GenerateBody | null;
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json({ error: "Expected JSON object body." }, { status: 400 });
+    return NextResponse.json({ error: "请求内容不完整，请刷新页面后重试。" }, { status: 400 });
   }
 
   try {

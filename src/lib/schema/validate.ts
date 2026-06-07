@@ -137,7 +137,7 @@ export function validateScriptForgeReferences(
         errors.push(
           referenceError(
             `$.script.source.chapters[${chi}].key_facts[${fi}].id`,
-            `来源事实 "${fact.id}" 重复，fact id 必须在整份文档中唯一。`,
+            `来源事实 "${fact.id}" 重复，请确保每条关键信息都有唯一编号。`,
           ),
         );
       }
@@ -192,7 +192,7 @@ export function validateScriptForgeReferences(
         errors.push(
           referenceError(
             `$.script.scenes[${si}].source_refs[${ri}]`,
-            `场景来源事实 "${factId}" 不在 source.chapters[].key_facts 中，或该 fact id 不唯一。`,
+            `场景来源事实 "${factId}" 不存在，或该关键信息编号重复。`,
           ),
         );
       }
@@ -218,7 +218,7 @@ export function validateScriptForgeReferences(
           errors.push(
             referenceError(
               `$.script.scenes[${si}].beats[${bi}].source_refs[${ri}]`,
-              `beat 来源事实 "${factId}" 不在 source.chapters[].key_facts 中，或该 fact id 不唯一。`,
+              `片段来源事实 "${factId}" 不存在，或该关键信息编号重复。`,
             ),
           );
         }
@@ -290,7 +290,8 @@ function normalizeAjvErrors(ajvErrors: ErrorObject[]): ValidationError[] {
   return ajvErrors
     .filter((err) => err.keyword !== "error")
     .map((err) => {
-      const path = "$" + (err.instancePath || "");
+      const basePath = "$" + (err.instancePath || "");
+      const path = ajvIssuePath(err, basePath);
       const message = formatAjvError(err, path);
       return {
         path,
@@ -302,15 +303,29 @@ function normalizeAjvErrors(ajvErrors: ErrorObject[]): ValidationError[] {
     });
 }
 
+function ajvIssuePath(error: ErrorObject, basePath: string): string {
+  if (error.keyword === "required" && "missingProperty" in error.params) {
+    return appendIssuePath(basePath, String(error.params.missingProperty));
+  }
+
+  if (error.keyword === "additionalProperties" && "additionalProperty" in error.params) {
+    return appendIssuePath(basePath, String(error.params.additionalProperty));
+  }
+
+  return basePath;
+}
+
+function appendIssuePath(basePath: string, property: string): string {
+  if (!property) return basePath;
+  return basePath.includes("/") ? `${basePath}/${property}` : `${basePath}.${property}`;
+}
+
 function formatAjvError(error: ErrorObject, path: string): string {
   switch (error.keyword) {
     case "required":
-      return `${path} 缺少必填字段 ${JSON.stringify(error.params.missingProperty)}。`;
+      return `${path} 缺少必填字段。`;
     case "additionalProperties":
-      if ("additionalProperty" in error.params) {
-        return `${path}.${String(error.params.additionalProperty)} 不是 Schema 允许的字段。`;
-      }
-      return `${path} 包含 Schema 不允许的字段。`;
+      return `${path} 不是 Schema 允许的字段。`;
     case "minItems":
       return `${path} 至少需要 ${String(error.params.limit)} 项。`;
     case "minLength":

@@ -4,9 +4,8 @@ export function parseModelJson(content: string): { ok: true; value: unknown } | 
   const trimmed = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   try {
     return { ok: true, value: JSON.parse(trimmed) as unknown };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { ok: false, message: `AI JSON 解析失败：${message}` };
+  } catch {
+    return { ok: false, message: "生成内容格式异常，请重新生成一次。" };
   }
 }
 

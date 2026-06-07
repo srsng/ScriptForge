@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   try {
     const body = await readJsonObject(request);
     const generationRequest = normalizeGenerationRequest(body.request);
-    if (!generationRequest) throw new Error("Invalid GenerationRequest payload.");
+    if (!generationRequest) throw new Error("章节内容或改编偏好不完整，请检查后再生成。");
 
     const stageOutputs: Required<GenerationStageOutputs> = {
       analyzer: body.analyzer as AnalyzerStageOutput,
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       reporter: body.reporter as ReporterStageOutput,
     };
     if (!stageOutputs.analyzer || !stageOutputs.planner || !stageOutputs.screenwriter || !stageOutputs.reporter) {
-      throw new Error("Expected complete stage outputs.");
+      throw new Error("生成进度不完整，请重新生成剧本。");
     }
 
     const diagnostics = Array.isArray(body.diagnostics) ? body.diagnostics as GenerationDiagnostic[] : [];

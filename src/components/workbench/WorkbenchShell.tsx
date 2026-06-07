@@ -39,9 +39,11 @@ import { ScriptPreviewPanel } from "./ScriptPreviewPanel";
 import { WorkspaceList, type WorkspaceIndexEntry } from "./WorkspaceList";
 import { YamlEditorPanel } from "./YamlEditorPanel";
 import {
+  formatValidationPath,
   jsonPreview,
   parseDocumentJson,
   resultSourceLabel,
+  validationSummary,
   type ResultSource,
 } from "./utils";
 
@@ -95,10 +97,10 @@ type StageApiResponse<T> = {
 
 const EMPTY_RESULT_TEXT = "";
 const STAGE_LABELS: Record<GenerationStagePreview["stage"], string> = {
-  analyzer: "Analyzer",
-  planner: "Planner",
-  screenwriter: "Screenwriter",
-  reporter: "Reporter",
+  analyzer: "梳理素材",
+  planner: "设计场景",
+  screenwriter: "撰写剧本",
+  reporter: "整理建议",
 };
 
 function previewJson(value: unknown): string {
@@ -109,19 +111,19 @@ function stageSummary(stage: GenerationStagePreview["stage"], output: unknown): 
   if (stage === "analyzer") {
     const analyzer = output as AnalyzerStageOutput;
     const factCount = analyzer.source.chapters.reduce((sum, chapter) => sum + chapter.key_facts.length, 0);
-    return `${analyzer.source.chapters.length} 章，${factCount} 条 facts`;
+    return `${analyzer.source.chapters.length} 章素材，${factCount} 条关键信息`;
   }
   if (stage === "planner") {
     const planner = output as PlannerStageOutput;
-    return `${planner.characters.length} 人物，${planner.locations.length} 地点，${planner.scene_plan.length} 场面卡`;
+    return `${planner.characters.length} 个人物，${planner.locations.length} 个地点，${planner.scene_plan.length} 个场景安排`;
   }
   if (stage === "screenwriter") {
     const screenwriter = output as ScreenwriterStageOutput;
     const beatCount = screenwriter.scenes.reduce((sum, scene) => sum + scene.beats.length, 0);
-    return `${screenwriter.scenes.length} 场，${beatCount} beats`;
+    return `${screenwriter.scenes.length} 个场景，${beatCount} 段剧本内容`;
   }
   const reporter = output as ReporterStageOutput;
-  return `${reporter.title || "未命名"}，${reporter.adaptation_report.revision_suggestions.length} 条后续改进`;
+  return `${reporter.title || "未命名"}，${reporter.adaptation_report.revision_suggestions.length} 条打磨建议`;
 }
 
 export function WorkbenchShell() {
@@ -144,6 +146,7 @@ export function WorkbenchShell() {
   const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
   const [generationDiagnostics, setGenerationDiagnostics] = useState<GenerationDiagnostic[]>([]);
   const [generationStagePreviews, setGenerationStagePreviews] = useState<GenerationStagePreview[]>([]);
+  const [currentGenerationStage, setCurrentGenerationStage] = useState<GenerationStagePreview["stage"] | null>(null);
   const [generationError, setGenerationError] = useState("");
   const [yamlText, setYamlText] = useState("");
   const [lastAppliedYamlText, setLastAppliedYamlText] = useState("");
@@ -171,9 +174,9 @@ export function WorkbenchShell() {
   const yamlHasValidationErrors = yamlValidation !== null && !yamlValidation.valid;
   const yamlExportBlocked = yamlHasDraftChanges || yamlHasValidationErrors;
   const yamlExportBlockedReason = yamlHasDraftChanges
-    ? "YAML 有未应用草稿，请先应用到 JSON 或重置"
+    ? "导出内容有未确认的编辑，请先确认或放弃这些编辑"
     : yamlHasValidationErrors
-      ? "YAML 校验未通过，请先修复错误"
+      ? "导出内容存在检查错误，请修正后再导出"
       : "";
   const canApplyYaml = yamlText.trim().length > 0 && !yamlValidating;
   const canResetYaml = lastAppliedYamlText.length > 0 && yamlHasDraftChanges;
@@ -195,7 +198,7 @@ export function WorkbenchShell() {
     const issues = result.errors.length ? result.errors : result.warnings;
     return issues
       .slice(0, 3)
-      .map((issue) => `${issue.path || "root"}: ${issue.message}`)
+      .map((issue) => `${formatValidationPath(issue.path)}: ${issue.message}`)
       .join("；");
   }
 
@@ -207,15 +210,15 @@ export function WorkbenchShell() {
     });
     if (!response.ok) {
       const data = await response.json().catch(() => null) as { error?: string } | null;
-      throw new Error(data?.error ?? "YAML 校验请求失败");
+      throw new Error(data?.error ?? "检查请求失败");
     }
     return (await response.json()) as ValidationResult;
   }
 
   function messageForValidationResult(result: ValidationResult): string {
-    if (result.valid && result.status === "pass") return "YAML 校验通过，可以应用或导出";
-    if (result.valid) return `YAML 校验通过但存在 ${result.warnings.length} 条警告：${summarizeValidationIssues(result)}`;
-    return `YAML 校验失败：${summarizeValidationIssues(result) || `${result.errors.length} 条错误`}`;
+    if (result.valid && result.status === "pass") return "YAML 内容检查通过，可以保存改动或导出";
+    if (result.valid) return `YAML 内容可用，但有 ${result.warnings.length} 条提醒：${summarizeValidationIssues(result)}`;
+    return `YAML 内容仍需处理：${summarizeValidationIssues(result) || `${result.errors.length} 条问题`}`;
   }
 
   function buildWorkspaceState(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
@@ -231,6 +234,7 @@ export function WorkbenchShell() {
       yamlValidation,
       repairResult,
       generationDiagnostics,
+      generationStagePreviews,
       generationError,
       message,
       updated_at: new Date().toISOString(),
@@ -252,7 +256,8 @@ export function WorkbenchShell() {
     setYamlValidation(state.yamlValidation as ValidationResult | null);
     setRepairResult(state.repairResult as RepairResult | null);
     setGenerationDiagnostics(state.generationDiagnostics as GenerationDiagnostic[]);
-    setGenerationStagePreviews([]);
+    setGenerationStagePreviews(state.generationStagePreviews as GenerationStagePreview[]);
+    setCurrentGenerationStage(null);
     setGenerationError(state.generationError);
     setResultSource(state.resultSource);
     setMessage(state.message || "已恢复工作区");
@@ -380,6 +385,7 @@ export function WorkbenchShell() {
     setGenerationError("");
     setGenerationDiagnostics([]);
     setGenerationStagePreviews([]);
+    setCurrentGenerationStage(null);
     setResultText(EMPTY_RESULT_TEXT);
     setYamlText("");
     setYamlValidation(null);
@@ -399,6 +405,7 @@ export function WorkbenchShell() {
       endpoint: string,
       body: Record<string, unknown>,
     ): Promise<T> {
+      setCurrentGenerationStage(stage);
       setMessage(`正在执行 ${STAGE_LABELS[stage]} 阶段`);
       const response = await fetch(endpoint, {
         method: "POST",
@@ -445,6 +452,7 @@ export function WorkbenchShell() {
         screenwriter,
       });
 
+      setCurrentGenerationStage(null);
       setMessage("正在组装并校验剧本");
       const response = await fetch("/api/generate/assemble", {
         method: "POST",
@@ -466,7 +474,7 @@ export function WorkbenchShell() {
         throw new Error(data.error ?? "AI 生成失败");
       }
       if (!data.document) {
-        throw new Error(data.error ?? "AI 没有返回可展示的剧本草稿");
+        throw new Error(data.error ?? "AI 没有返回可展示的剧本初稿");
       }
 
       const nextYamlText = data.scriptYaml ?? documentToYaml(data.document);
@@ -479,7 +487,7 @@ export function WorkbenchShell() {
       const source = data.resultSource ?? (data.status === "needs_revision" ? "ai_draft" : "ai");
       setResultSource(source);
       const successMessage = data.status === "needs_revision"
-        ? "AI 返回了结构化草稿，但剧本质量不足，不满足目标时长，建议重新生成或手动加强。"
+        ? "AI 返回了剧本初稿，但剧本质量不足，不满足目标时长，建议重新生成或手动加强。"
         : "已生成 AI 剧本初稿";
       if (activeWorkspace) {
         await saveCurrentWorkspaceState({
@@ -508,7 +516,7 @@ export function WorkbenchShell() {
 
   function handleConvertToYaml() {
     if (!currentDocument) {
-      setMessage("结果 JSON 不是有效的 ScriptForgeDocument，无法导出");
+      setMessage("还没有可导出的剧本内容");
       return;
     }
 
@@ -517,17 +525,17 @@ export function WorkbenchShell() {
     setLastAppliedYamlText(nextYamlText);
     setYamlValidation(null);
     setHasUnsavedState(true);
-    setMessage("已从当前 JSON 重新生成 YAML，可编辑后应用回剧本");
+    setMessage("已按当前剧本生成 YAML 内容，可继续编辑");
   }
 
   async function handleYamlRevalidate() {
     if (!yamlText.trim()) {
-      setMessage("YAML 内容为空，无法校验");
+      setMessage("YAML 内容为空，无法检查");
       return;
     }
 
     setYamlValidating(true);
-    setMessage("正在校验 YAML");
+    setMessage("正在检查 YAML 内容");
     try {
       const result = await requestYamlValidation();
       setYamlValidation(result);
@@ -535,7 +543,7 @@ export function WorkbenchShell() {
       setMessage(messageForValidationResult(result));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      setMessage(`YAML 校验请求失败：${errorMessage}`);
+      setMessage(`YAML 内容检查失败：${errorMessage}`);
       setYamlValidation(null);
     } finally {
       setYamlValidating(false);
@@ -544,12 +552,12 @@ export function WorkbenchShell() {
 
   async function handleApplyYamlToJson() {
     if (!yamlText.trim()) {
-      setMessage("YAML 内容为空，无法应用");
+      setMessage("YAML 内容为空，无法更新页面剧本");
       return;
     }
 
     setYamlValidating(true);
-    setMessage("正在校验并应用 YAML");
+    setMessage("正在检查并更新页面剧本");
     try {
       const result = await requestYamlValidation();
       setYamlValidation(result);
@@ -560,7 +568,7 @@ export function WorkbenchShell() {
 
       const nextDocument = yamlToDocument(yamlText);
       if (!nextDocument) {
-        setMessage("YAML 结构无法转换为 ScriptForgeDocument：缺少 script 根节点或 schema_version");
+        setMessage("YAML 内容缺少必要内容，无法更新页面剧本");
         return;
       }
 
@@ -569,10 +577,10 @@ export function WorkbenchShell() {
       setResultSource("manual");
       setRepairResult(null);
       setHasUnsavedState(true);
-      setMessage(result.status === "warn" ? messageForValidationResult(result) : "YAML 已应用到页面剧本与 JSON");
+      setMessage(result.status === "warn" ? messageForValidationResult(result) : "页面剧本已按确认内容更新");
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      setMessage(`YAML 应用失败：${errorMessage}`);
+      setMessage(`更新页面剧本失败：${errorMessage}`);
       setYamlValidation(null);
     } finally {
       setYamlValidating(false);
@@ -581,19 +589,19 @@ export function WorkbenchShell() {
 
   function handleResetYamlDraft() {
     if (!lastAppliedYamlText) {
-      setMessage("没有可恢复的上一次已应用 YAML");
+      setMessage("没有可恢复的上一次确认内容");
       return;
     }
 
     setYamlText(lastAppliedYamlText);
     setYamlValidation(null);
     setHasUnsavedState(true);
-    setMessage("已恢复到上一次已应用的 YAML 内容");
+    setMessage("已恢复到上一次确认的内容");
   }
 
   async function handleAutoRepair() {
     if (!currentDocument && !yamlText.trim()) {
-      setMessage("没有可修复内容：请先生成结果或提供 YAML");
+      setMessage("没有可整理的内容：请先生成剧本初稿");
       return;
     }
 
@@ -630,7 +638,7 @@ export function WorkbenchShell() {
 
   async function handleReviseByDirections(directions: string[]) {
     if (!currentDocument) {
-      setMessage("没有可改写内容：请先生成剧本草稿");
+      setMessage("没有可改写内容：请先生成剧本初稿");
       return;
     }
     if (directions.length === 0) {
@@ -710,7 +718,7 @@ export function WorkbenchShell() {
     setResultSource("repair");
     setRepairResult(null);
     setHasUnsavedState(true);
-    setMessage("修复结果已应用，正在重新校验 YAML");
+    setMessage("整理建议已应用，正在重新检查");
 
     try {
       const response = await fetch("/api/validate", {
@@ -721,18 +729,18 @@ export function WorkbenchShell() {
       const validation = (await response.json()) as ValidationResult;
       setYamlValidation(validation);
       if (validation.valid) {
-        setMessage("修复结果已应用，YAML 校验通过");
+        setMessage("整理建议已应用，检查通过");
       } else {
-        setMessage(`修复结果已应用，仍有 ${validation.errors.length} 条错误需要处理`);
+        setMessage(`整理建议已应用，仍有 ${validation.errors.length} 条问题需要处理`);
       }
     } catch {
-      setMessage("修复结果已应用，但重新校验请求失败");
+      setMessage("整理建议已应用，但重新检查失败");
     }
   }
 
   function handleDownload(formatName: "yaml" | "json" | "markdown") {
     if (!currentDocument) {
-      setMessage("无法导出：结果 JSON 不是有效的 ScriptForgeDocument");
+      setMessage("无法导出：当前还没有可用剧本，请先生成剧本初稿");
       return;
     }
 
@@ -772,12 +780,14 @@ export function WorkbenchShell() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    setMessage(`${formatName.toUpperCase()} 已下载：${filename}`);
+    const downloadLabel =
+      formatName === "yaml" ? "YAML 编辑稿" : formatName === "json" ? "JSON 完整备份" : "Markdown 阅读稿";
+    setMessage(`${downloadLabel} 已下载：${filename}`);
   }
 
   async function handleCopyYaml() {
     if (!currentDocument) {
-      setMessage("无法复制：结果 JSON 不是有效的 ScriptForgeDocument");
+      setMessage("无法复制：当前还没有可用剧本，请先生成剧本初稿");
       return;
     }
 
@@ -801,10 +811,10 @@ export function WorkbenchShell() {
         <header className="rounded-lg border border-zinc-200 bg-white px-5 py-4 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-sm font-medium text-cyan-700">ScriptForge M6</p>
-              <h1 className="mt-1 text-3xl font-semibold text-zinc-950">作者工作台</h1>
+              <p className="text-sm font-medium text-cyan-700">ScriptForge 创作助手</p>
+              <h1 className="mt-1 text-3xl font-semibold text-zinc-950">剧本改编工作区</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
-                从连续小说章节出发，先确定改编目标，再生成结构化剧本草稿；生成后按校验、修复或重试、导出的顺序推进。
+                从连续小说章节出发，先确定改编目标，再生成可编辑的剧本初稿；完成后按质量检查、修复或重试、导出的顺序推进。
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
@@ -829,26 +839,37 @@ export function WorkbenchShell() {
               </div>
             </div>
             <div className="grid gap-2 text-sm sm:grid-cols-3 lg:w-[34rem]">
-              <StatusTile label="Message" value={displayMessage} tone="text-emerald-700" />
-              <StatusTile label="Result" value={resultSourceLabel(resultSource)} />
-              <StatusTile label="Validation" value={yamlValidation ? yamlValidation.status : "not checked"} />
+              <StatusTile label="当前状态" value={displayMessage} tone="text-emerald-700" />
+              <StatusTile label="剧本内容" value={resultSourceLabel(resultSource)} />
+              <StatusTile label="检查结果" value={validationSummary(yamlValidation)} />
             </div>
           </div>
         </header>
 
-        <ProcessGuide
-          inputReady={normalization.isValid}
-          hasTarget={Boolean(title.trim() && genre.trim() && tone.trim() && duration > 0)}
-          generateState={generateState}
-          validation={yamlValidation}
-          hasDocument={currentDocument !== null}
-          exportBlocked={yamlExportBlocked}
-          generationError={generationError}
-          diagnostics={generationDiagnostics}
-        />
-
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-5">
+            <ProcessGuide
+              inputReady={normalization.isValid}
+              hasTarget={title.trim().length > 0 && genre.trim().length > 0 && tone.trim().length > 0 && duration > 0}
+              generateState={generateState}
+              validation={yamlValidation}
+              hasDocument={currentDocument !== null}
+              exportBlocked={yamlExportBlocked}
+            />
+
+            <InputPanel
+              rawInput={rawInput}
+              normalization={normalization}
+              sampleMeta={sampleMeta}
+              sampleChapterCount={sampleChapterCount}
+              onRawInputChange={(value) => {
+                setRawInput(value);
+                setHasUnsavedState(true);
+              }}
+              onSampleChapterCountChange={(value) => setSampleChapterCount(Number.isFinite(value) ? Math.max(3, value) : 3)}
+              onLoadSample={() => void loadQuanZhiGaoShouSample()}
+            />
+
             <PreferencePanel
               title={title}
               format={format}
@@ -877,27 +898,13 @@ export function WorkbenchShell() {
               }}
             />
 
-            <InputPanel
-              rawInput={rawInput}
-              normalization={normalization}
-              sampleMeta={sampleMeta}
-              sampleChapterCount={sampleChapterCount}
-              onRawInputChange={(value) => {
-                setRawInput(value);
-                setHasUnsavedState(true);
-              }}
-              onSampleChapterCountChange={(value) => setSampleChapterCount(Number.isFinite(value) ? Math.max(3, value) : 3)}
-              onLoadSample={() => void loadQuanZhiGaoShouSample()}
-            />
-
             <GenerationPanel
               generateState={generateState}
               generationElapsedSeconds={generationElapsedSeconds}
               generationError={generationError}
               diagnostics={generationDiagnostics}
               stagePreviews={generationStagePreviews}
-              resultSource={resultSource}
-              targetDurationMinutes={duration}
+              currentStage={currentGenerationStage}
               canGenerate={canGenerate}
               onGenerate={() => void generateDraft()}
             />
@@ -913,9 +920,10 @@ export function WorkbenchShell() {
               onApplyRepair={() => void handleApplyRepair()}
             />
 
-            <ScriptPreviewPanel document={currentDocument} validation={yamlValidation} />
+            <ScriptPreviewPanel document={currentDocument} generateState={generateState} validation={yamlValidation} />
             <AdaptationReportPanel
               document={currentDocument}
+              generateState={generateState}
               revising={revising}
               validation={yamlValidation}
               onReviseByDirections={(directions) => void handleReviseByDirections(directions)}

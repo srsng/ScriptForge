@@ -23,6 +23,8 @@ export type ScriptCapacityBudget = {
   minDialogueBeats: number;
   minScriptChars: number;
   minMajorSceneChars: number;
+  minSceneCount: number;
+  recommendedSceneCount: number;
 };
 
 export type ScriptCapacitySummary = {
@@ -51,10 +53,6 @@ function qualityDiagnostic(message: string, severity: "info" | "warning" | "erro
   };
 }
 
-function percent(value: number): number {
-  return Math.round(value * 100);
-}
-
 function fillRatio(actual: number, expected: number): number {
   if (expected <= 0) return 1;
   return actual / expected;
@@ -74,6 +72,8 @@ export function buildScriptCapacityBudget(request: GenerationRequest): ScriptCap
     minDialogueBeats: targetDurationMinutes * 4,
     minScriptChars: targetDurationMinutes * 500,
     minMajorSceneChars: 600,
+    minSceneCount: Math.max(1, Math.ceil(targetDurationMinutes / 10)),
+    recommendedSceneCount: Math.max(1, Math.ceil(targetDurationMinutes / 6)),
   };
 }
 
@@ -235,25 +235,9 @@ export function evaluateScriptDensity(
   const budget = buildScriptCapacityBudget(request);
   const summary = summarizeScriptCapacity(document);
   const allBeats = scenes.flatMap((scene) => scene.beats);
-  const beatFill = fillRatio(summary.totalBeats, budget.minTotalBeats);
   const dialogueFill = fillRatio(summary.dialogueBeats, budget.minDialogueBeats);
   const textFill = fillRatio(summary.scriptChars, budget.minScriptChars);
-  const durationFill = fillRatio(summary.estimatedCapacityMinutes, budget.targetDurationMinutes);
   const totalFacts = collectFactIds(document).size;
-
-  diagnostics.push(qualityDiagnostic(
-    `CAPACITY_SUMMARY: 目标 ${budget.targetDurationMinutes} 分钟；当前 ${summary.sceneCount} 场、${summary.totalBeats}/${budget.minTotalBeats} beats（${percent(beatFill)}%）、${summary.dialogueBeats}/${budget.minDialogueBeats} 条 dialogue beats（${percent(dialogueFill)}%）、${summary.scriptChars}/${budget.minScriptChars} 字（${percent(textFill)}%），估算容量 ${summary.estimatedCapacityMinutes.toFixed(1)}/${budget.targetDurationMinutes} 分钟（${percent(durationFill)}%）。场景数仅供参考，按自然场景边界判断。`,
-    "info",
-  ));
-
-  const totalBeatSeverity = underfilledSeverity(summary.totalBeats, budget.minTotalBeats, ERROR_BEAT_FILL_RATIO);
-  if (totalBeatSeverity) {
-    diagnostics.push(qualityDiagnostic(
-      `LOW_TOTAL_BEATS: 目标时长 ${budget.targetDurationMinutes} 分钟，总 beats ${summary.totalBeats}/${budget.minTotalBeats}（${percent(beatFill)}%）。`,
-      totalBeatSeverity,
-    ));
-  }
-
   const majorScenes = scenes
     .map((scene, index) => ({
       scene,
@@ -261,13 +245,28 @@ export function evaluateScriptDensity(
       chars: sceneContentLength(scene),
     }))
     .filter(({ scene }) => isMajorScene(scene));
-  const shortTextScenes = majorScenes.filter(({ chars }) => chars < budget.minMajorSceneChars);
+  const shortTextScenes = majorScenes.filter(({ scene, chars }) => (
+    scene.beats.length > VERY_SHORT_SCENE_BEATS && chars < budget.minMajorSceneChars
+  ));
+
+  diagnostics.push(qualityDiagnostic(
+    `容量概览：已划分成 ${majorScenes.length} 个场景；现有内容：内容段 ${summary.totalBeats} 个、对白段 ${summary.dialogueBeats} 个、主体文本 ${summary.scriptChars} 字；预计可支撑 ${summary.estimatedCapacityMinutes.toFixed(1)} 分钟。`,
+    "info",
+  ));
+
+  const totalBeatSeverity = underfilledSeverity(summary.totalBeats, budget.minTotalBeats, ERROR_BEAT_FILL_RATIO);
+  if (totalBeatSeverity) {
+    diagnostics.push(qualityDiagnostic(
+      `篇幅不足：现有内容段 ${summary.totalBeats} 个，主体文本 ${summary.scriptChars} 字，预计可支撑 ${summary.estimatedCapacityMinutes.toFixed(1)} 分钟；建议扩写关键场景。`,
+      totalBeatSeverity,
+    ));
+  }
 
   for (const [index, scene] of scenes.entries()) {
     if (!isMajorScene(scene)) continue;
     if (scene.beats.length <= VERY_SHORT_SCENE_BEATS) {
       diagnostics.push(qualityDiagnostic(
-        `SCENE_TOO_SHORT: 第 ${index + 1} 场 "${scene.title}" 只有 ${scene.beats.length} 个 beats，像场景碎片，建议按自然场景边界扩写为完整场面。`,
+        `场景过碎：第 ${index + 1} 场 "${scene.title}" 只有 ${scene.beats.length} 个内容段，像场景碎片，建议按自然场景边界扩写为完整场面。`,
         "warning",
       ));
     }
@@ -280,7 +279,7 @@ export function evaluateScriptDensity(
       .join("；");
     const severity = textFill < ERROR_TEXT_FILL_RATIO && shortTextScenes.length > majorScenes.length / 2 ? "error" : "warning";
     diagnostics.push(qualityDiagnostic(
-      `SCENE_TEXT_TOO_SHORT: ${shortTextScenes.length}/${majorScenes.length} 个主要 scene 文本低于 ${budget.minMajorSceneChars} 字；代表场景：${examples}。`,
+      `场景篇幅偏短：有 ${shortTextScenes.length} 个主要场景还偏薄；代表场景：${examples}。建议补足可拍摄动作、对白攻防和人物反应。`,
       severity,
     ));
   }
@@ -288,7 +287,7 @@ export function evaluateScriptDensity(
   const dialogueRatio = summary.totalBeats === 0 ? 0 : summary.dialogueBeats / summary.totalBeats;
   if (dialogueRatio < MIN_DIALOGUE_RATIO) {
     diagnostics.push(qualityDiagnostic(
-      `LOW_DIALOGUE_RATIO: dialogue beats 占比 ${Math.round(dialogueRatio * 100)}%，低于最低要求 ${Math.round(MIN_DIALOGUE_RATIO * 100)}%。`,
+      `对白偏少：现有 ${summary.dialogueBeats} 个对白段、${summary.totalBeats} 个内容段；建议增加人物之间的回应和交锋。`,
       dialogueFill < ERROR_DIALOGUE_FILL_RATIO ? "error" : "warning",
     ));
   }
@@ -300,11 +299,11 @@ export function evaluateScriptDensity(
   );
   if (dialogueSeverity) {
     diagnostics.push(qualityDiagnostic(
-      `LOW_DIALOGUE_COUNT: 目标时长 ${budget.targetDurationMinutes} 分钟至少需要约 ${budget.minDialogueBeats} 条 dialogue beats，当前 ${summary.dialogueBeats}/${budget.minDialogueBeats}（${percent(dialogueFill)}%）。`,
+      `对白篇幅不足：现有 ${summary.dialogueBeats} 个对白段；建议补足关系推进、情绪变化、潜台词和攻防往返。`,
       dialogueSeverity,
     ));
     diagnostics.push(qualityDiagnostic(
-      `LOW_DIALOGUE_ROUNDS: 对白轮次不足，当前 ${summary.dialogueBeats} 条 dialogue beats 无法支撑 ${budget.targetDurationMinutes} 分钟的关系、情绪、潜台词和攻防变化。`,
+      `对白轮次不足：现有 ${summary.dialogueBeats} 个对白段，关系、情绪、潜台词和攻防变化还不够充分。`,
       dialogueSeverity,
     ));
   }
@@ -313,7 +312,7 @@ export function evaluateScriptDensity(
     const thinBeatCount = allBeats.filter((beat) => contentLength(beat) < THIN_BEAT_CHAR_LIMIT).length;
     if (thinBeatCount / summary.totalBeats >= THIN_BEAT_RATIO) {
       diagnostics.push(qualityDiagnostic(
-        `BEAT_TOO_THIN: ${thinBeatCount}/${summary.totalBeats} 个 beats 少于 ${THIN_BEAT_CHAR_LIMIT} 个中文字符，多数内容像剧情梗概。`,
+        `内容段过短：${thinBeatCount}/${summary.totalBeats} 个内容段少于 ${THIN_BEAT_CHAR_LIMIT} 个中文字符，多数内容像剧情梗概。`,
         "warning",
       ));
     }
@@ -321,7 +320,7 @@ export function evaluateScriptDensity(
     const summaryLikeRatio = summary.summaryLikeBeats / summary.totalBeats;
     if (summaryLikeRatio >= WARNING_SUMMARY_LIKE_RATIO) {
       diagnostics.push(qualityDiagnostic(
-        `SUMMARY_LIKE_BEATS: ${summary.summaryLikeBeats}/${summary.totalBeats} 个 beats 像剧情摘要，缺少可拍摄动作、对象、反应或对白攻防。`,
+        `内容偏概要：${summary.summaryLikeBeats}/${summary.totalBeats} 个内容段更像剧情摘要，缺少可拍摄动作、对象、反应或对白攻防。`,
         summaryLikeRatio >= ERROR_SUMMARY_LIKE_RATIO ? "error" : "warning",
       ));
     }
@@ -330,7 +329,7 @@ export function evaluateScriptDensity(
     const resultOnlyActionRatio = actionBeats === 0 ? 0 : summary.resultOnlyActions / actionBeats;
     if (resultOnlyActionRatio >= WARNING_RESULT_ONLY_ACTION_RATIO) {
       diagnostics.push(qualityDiagnostic(
-        `RESULT_ONLY_ACTION: ${summary.resultOnlyActions}/${actionBeats} 条 action beats 只写结果，缺少起手、阻碍、对象变化、人物反应或停顿。`,
+        `动作描写偏结果：${summary.resultOnlyActions}/${actionBeats} 个动作段只写结果，缺少起手、阻碍、对象变化、人物反应或停顿。`,
         resultOnlyActionRatio >= ERROR_RESULT_ONLY_ACTION_RATIO ? "error" : "warning",
       ));
     }
@@ -338,7 +337,7 @@ export function evaluateScriptDensity(
     const dryDialogueRatio = summary.dialogueBeats === 0 ? 0 : summary.dryDialogues / summary.dialogueBeats;
     if (dryDialogueRatio >= WARNING_DRY_DIALOGUE_RATIO) {
       diagnostics.push(qualityDiagnostic(
-        `DRY_DIALOGUE: ${summary.dryDialogues}/${summary.dialogueBeats} 条 dialogue beats 偏干，缺少潜台词、动作配合或攻防压力。`,
+        `对白偏干：${summary.dryDialogues}/${summary.dialogueBeats} 个对白段缺少潜台词、动作配合或攻防压力。`,
         dryDialogueRatio >= ERROR_DRY_DIALOGUE_RATIO ? "error" : "warning",
       ));
     }
@@ -346,7 +345,7 @@ export function evaluateScriptDensity(
 
   if (summary.possibleArtificialSceneSplits > 0) {
     diagnostics.push(qualityDiagnostic(
-      `POSSIBLE_ARTIFICIAL_SCENE_SPLIT: ${summary.possibleArtificialSceneSplits} 组相邻场景地点、时间、人物和来源高度连续，疑似为了凑数量拆分；建议按自然场景边界合并或重组。`,
+      `场景切分可能过细：${summary.possibleArtificialSceneSplits} 组相邻场景地点、时间、人物和原文来源高度连续；建议按自然场景边界合并或重组。`,
       "warning",
     ));
   }
@@ -354,7 +353,7 @@ export function evaluateScriptDensity(
   if (totalFacts > 0 && summary.underusedFacts > 0) {
     const ratio = summary.underusedFacts / totalFacts;
     diagnostics.push(qualityDiagnostic(
-      `FACT_REF_UNDERUSED: ${summary.underusedFacts}/${totalFacts} 条 key_facts 没有被 scene.source_refs 或 beats[].source_refs 使用，原文事实没有充分进入剧本。`,
+      `原文线索使用不足：${summary.underusedFacts}/${totalFacts} 条关键事实没有进入场景或内容段，原文事实没有充分进入剧本。`,
       ratio >= 0.35 ? "error" : "warning",
     ));
   }
@@ -364,35 +363,35 @@ export function evaluateScriptDensity(
     .map((chapter) => chapter.id);
   if (unusedChapterIds.length > 0) {
     diagnostics.push(qualityDiagnostic(
-      `SOURCE_UNDERUSED: ${unusedChapterIds.join("、")} 只出现在 source 中，未被任何 scene.source_chapters 使用。`,
+      `原文章节未覆盖：${unusedChapterIds.join("、")} 还没有进入任何场景。`,
       "error",
     ));
   }
 
   if (summary.scenesWithoutTurningPoint > 0) {
     diagnostics.push(qualityDiagnostic(
-      `SCENE_NO_TURNING_POINT: ${summary.scenesWithoutTurningPoint}/${summary.sceneCount} 个 scene 缺少明确 scene_card.turning_point，场景更像情节说明。`,
+      `场景缺少转折：${summary.scenesWithoutTurningPoint}/${summary.sceneCount} 个场景缺少明确转折，整体更像情节说明。`,
       summary.scenesWithoutTurningPoint > summary.sceneCount / 2 ? "error" : "warning",
     ));
   }
 
   if (summary.staticSceneArcs > 0) {
     diagnostics.push(qualityDiagnostic(
-      `SCENE_STATIC_ARC: ${summary.staticSceneArcs}/${summary.sceneCount} 个 scene 的 entry_state 与 exit_state 没有明显变化。`,
+      `场景前后变化不足：${summary.staticSceneArcs}/${summary.sceneCount} 个场景的开场状态与收场状态没有明显变化。`,
       summary.staticSceneArcs > summary.sceneCount / 2 ? "error" : "warning",
     ));
   }
 
   if (summary.scenesWithoutDialogueExchange > 0) {
     diagnostics.push(qualityDiagnostic(
-      `DIALOGUE_NO_EXCHANGE: ${summary.scenesWithoutDialogueExchange}/${summary.sceneCount} 个 scene 缺少至少两个角色的对白攻防轮次。`,
+      `对白攻防不足：${summary.scenesWithoutDialogueExchange}/${summary.sceneCount} 个场景缺少至少两个角色的对白攻防轮次。`,
       summary.scenesWithoutDialogueExchange > summary.sceneCount / 2 ? "error" : "warning",
     ));
   }
 
   if (summary.scenesMissingCoreBeatFunction > 0) {
     diagnostics.push(qualityDiagnostic(
-      `BEAT_FUNCTION_MISSING_ARC: ${summary.scenesMissingCoreBeatFunction}/${summary.sceneCount} 个 scene 的 beats 缺少 pressure/reveal/turn/reaction 等推进功能。`,
+      `场景推进功能不足：${summary.scenesMissingCoreBeatFunction}/${summary.sceneCount} 个场景缺少压力、揭示、转折或反应等推进内容。`,
       summary.scenesMissingCoreBeatFunction > summary.sceneCount / 2 ? "error" : "warning",
     ));
   }
@@ -400,7 +399,7 @@ export function evaluateScriptDensity(
   const textSeverity = underfilledSeverity(summary.scriptChars, budget.minScriptChars, ERROR_TEXT_FILL_RATIO);
   if (textSeverity) {
     diagnostics.push(qualityDiagnostic(
-      `DURATION_TEXT_UNDERFILLED: 目标时长 ${budget.targetDurationMinutes} 分钟至少需要约 ${budget.minScriptChars} 字主体剧本文本，当前 ${summary.scriptChars}/${budget.minScriptChars}（${percent(textFill)}%）。`,
+      `主体篇幅不足：现有主体剧本文本约 ${summary.scriptChars} 字；建议扩写场景动作、对白和人物反应。`,
       textSeverity,
     ));
   }
@@ -412,7 +411,7 @@ export function evaluateScriptDensity(
   );
   if (durationSeverity) {
     diagnostics.push(qualityDiagnostic(
-      `DURATION_UNDERFILLED: 按每分钟约 8 个 beats 估算，当前容量约 ${summary.estimatedCapacityMinutes.toFixed(1)}/${budget.targetDurationMinutes} 分钟（${percent(durationFill)}%）。`,
+      `预计时长不足：按每分钟约 8 个内容段估算，当前容量约 ${summary.estimatedCapacityMinutes.toFixed(1)} 分钟；建议继续扩写关键场景。`,
       durationSeverity,
     ));
   }

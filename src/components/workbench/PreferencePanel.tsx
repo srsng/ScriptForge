@@ -29,7 +29,7 @@ export function PreferencePanel({
     <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
       <div className="mb-4">
         <h2 className="text-lg font-semibold">改编偏好</h2>
-        <p className="text-sm text-zinc-600">这些字段会随当前编辑态一起发送给 /api/generate。</p>
+        <p className="text-sm text-zinc-600">告诉系统你想把这些章节改成什么样，生成时会按标题、形态、时长、类型和语气来组织剧本。</p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px]">

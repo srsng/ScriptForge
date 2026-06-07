@@ -8,7 +8,7 @@ export async function POST(request: Request) {
   try {
     const body = await readJsonObject(request);
     const generationRequest = normalizeGenerationRequest(body.request ?? body);
-    if (!generationRequest) throw new Error("Invalid GenerationRequest payload.");
+    if (!generationRequest) throw new Error("章节内容或改编偏好不完整，请检查后再生成。");
     const result = await runAnalyzerStage(generationRequest);
     return stageResponse(result);
   } catch (error) {
