@@ -370,28 +370,28 @@ export function evaluateScriptDensity(
 
   if (summary.scenesWithoutTurningPoint > 0) {
     diagnostics.push(qualityDiagnostic(
-      `场景缺少转折：${summary.scenesWithoutTurningPoint}/${summary.sceneCount} 个场景缺少明确转折，整体更像情节说明。`,
+      `场景缺少转折：${summary.scenesWithoutTurningPoint} 个场景缺少明确转折，整体更像情节说明。`,
       summary.scenesWithoutTurningPoint > summary.sceneCount / 2 ? "error" : "warning",
     ));
   }
 
   if (summary.staticSceneArcs > 0) {
     diagnostics.push(qualityDiagnostic(
-      `场景前后变化不足：${summary.staticSceneArcs}/${summary.sceneCount} 个场景的开场状态与收场状态没有明显变化。`,
+      `场景前后变化不足：${summary.staticSceneArcs} 个场景的开场状态与收场状态没有明显变化。`,
       summary.staticSceneArcs > summary.sceneCount / 2 ? "error" : "warning",
     ));
   }
 
   if (summary.scenesWithoutDialogueExchange > 0) {
     diagnostics.push(qualityDiagnostic(
-      `对白攻防不足：${summary.scenesWithoutDialogueExchange}/${summary.sceneCount} 个场景缺少至少两个角色的对白攻防轮次。`,
+      `对白攻防不足：${summary.scenesWithoutDialogueExchange} 个场景缺少至少两个角色的对白攻防轮次。`,
       summary.scenesWithoutDialogueExchange > summary.sceneCount / 2 ? "error" : "warning",
     ));
   }
 
   if (summary.scenesMissingCoreBeatFunction > 0) {
     diagnostics.push(qualityDiagnostic(
-      `场景推进功能不足：${summary.scenesMissingCoreBeatFunction}/${summary.sceneCount} 个场景缺少压力、揭示、转折或反应等推进内容。`,
+      `场景推进功能不足：${summary.scenesMissingCoreBeatFunction} 个场景缺少压力、揭示、转折或反应等推进内容。`,
       summary.scenesMissingCoreBeatFunction > summary.sceneCount / 2 ? "error" : "warning",
     ));
   }

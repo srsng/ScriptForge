@@ -153,7 +153,7 @@ function buildRestoredGenerationStagePreviews(result: ScriptForgeDocument): unkn
     {
       stage: "reporter",
       label: "整理改编说明",
-      summary: `${result.script.title || "未命名"}，${result.script.adaptation_report.revision_suggestions.length} 条打磨建议`,
+      summary: `${result.script.adaptation_report.revision_suggestions.length} 条打磨建议`,
       json: JSON.stringify({
         title: result.script.title,
         logline: result.script.metadata.logline,

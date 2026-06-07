@@ -123,7 +123,7 @@ function stageSummary(stage: GenerationStagePreview["stage"], output: unknown): 
     return `${screenwriter.scenes.length} 个场景，${beatCount} 段剧本内容`;
   }
   const reporter = output as ReporterStageOutput;
-  return `${reporter.title || "未命名"}，${reporter.adaptation_report.revision_suggestions.length} 条打磨建议`;
+  return `${reporter.adaptation_report.revision_suggestions.length} 条打磨建议`;
 }
 
 export function WorkbenchShell() {
